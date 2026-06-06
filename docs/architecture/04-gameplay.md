@@ -26,18 +26,36 @@ stateDiagram-v2
     MainMenu --> Cutscene: Новый забег
     Cutscene --> DeckBuilding: текст показан
     DeckBuilding --> LevelMap: колода зафиксирована
+
     LevelMap --> NodeResolve: выбрана вершина
-    NodeResolve --> LevelMap: вершина пройдена
-    NodeResolve --> Combat: тип = Combat/Boss
-    Combat --> LevelMap: победа
+    NodeResolve --> Combat: тип = Combat / Boss
+    NodeResolve --> Chest: тип = Loot
+    NodeResolve --> Question: тип = Question
+    NodeResolve --> EndBoss: тип = End — корневой босс
+
+    Combat --> Reward: победа
     Combat --> Death: HP = 0
-    NodeResolve --> EndBoss: достигнут end
-    EndBoss --> Combat: бой с боссом
+
+    Chest --> Reward: сундук открыт
+
+    Question --> Reward: ответ верный
+    Question --> LevelMap: ответ неверный, без награды
+
+    Reward --> LevelMap: вершина пройдена
+
     EndBoss --> SpecialLoot: босс побеждён
+    EndBoss --> Death: HP = 0
     SpecialLoot --> Cutscene: переход на новый уровень
+
     Death --> Restart: полное HP + новая колода
     Restart --> DeckBuilding
     MainMenu --> [*]: выход
+
+    note right of Reward
+        Награда (LootReward):
+        одноразовые карты → singleUseBag (текущий уровень),
+        постоянные карты и снаряжение → коллекция (будущие забеги)
+    end note
 ```
 
 ### 8.2. Главный цикл боя (Combat Loop)
@@ -88,7 +106,7 @@ flowchart TD
     H --> I{Тип вершины}
     I -->|Combat| J[Бой]
     I -->|Boss| K[Бой с боссом]
-    I -->|Loot| L[Сундук → карты/предметы<br/>в коллекцию]
+    I -->|Loot| L[Сундук → карты<br/>и снаряжение]
     I -->|Question| M[Вопрос]
 
     M --> M1{Ответ верный?}
@@ -147,16 +165,20 @@ stateDiagram-v2
 
 ```mermaid
 flowchart TD
-    FIGHT[Победа в бою] --> DROP[Карта-награда]
+    FIGHT[Победа в бою] --> DROP[Награда — карты и снаряжение]
     CHEST[Сундук] --> DROP
-    BOSS[Корневой босс] --> SPECIAL[Спец-карта]
-    DROP --> STORAGE[(Коллекция / хранилище)]
+    BOSS[Корневой босс] --> SPECIAL[Спец-карта / спец-лут]
+
+    DROP -->|постоянные карты,<br/>снаряжение| STORAGE[(Коллекция / хранилище)]
+    DROP -->|одноразовые карты| BAG[(singleUseBag<br/>текущий уровень)]
     SPECIAL --> STORAGE
+
     STORAGE -.->|Сбор колоды<br/>перед уровнем| DECK[Колода забега<br/>фиксируется до старта]
     DECK --> PLAY[Используется на уровне]
+    BAG --> PLAY
 ```
 
-> Новые карты **не** попадают в текущую колоду. Они открываются в коллекции и доступны для сборки колоды перед **следующим** заходом. Колода уровня фиксируется до старта и не пополняется в процессе. Источник наград — `LootSystem` (см. [§5](02-architecture.md#5-архитектура-классов)).
+> **Постоянные** карты не попадают в текущую колоду: они открываются в коллекции и доступны для сборки колоды перед **следующим** заходом. Основная колода забега (`RunDeck`) фиксируется до старта и постоянными картами в процессе не пополняется. Исключение — **одноразовые** карты, найденные в забеге: они складываются в запас текущего уровня (`singleUseBag`, отдельный цикл жизни, см. [§7.7](03-data-model.md#77-состояние-забега)) и могут быть разыграны до конца уровня. **Снаряжение** уходит в коллекцию для будущих забегов. Источник наград — `LootSystem` (см. [§5](02-architecture.md#5-архитектура-классов)).
 
 ### 10.3. Категории карт (примеры)
 
