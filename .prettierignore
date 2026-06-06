@@ -1,0 +1,14 @@
+# Pre-existing hand-formatted documentation (Russian architecture docs, README).
+# These are authored by hand and must not be reflowed by Prettier, otherwise
+# `prettier --check` would fail CI on files unrelated to source changes.
+docs/
+*.md
+
+# Non-source / tooling directories (hand-authored, not Prettier-managed)
+.github/
+.claude/
+
+# Generated / vendored
+node_modules/
+coverage/
+yarn.lock
