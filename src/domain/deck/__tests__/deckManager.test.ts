@@ -1,5 +1,5 @@
 import { CardType, CombatPhase } from '../../model';
-import type { CardDefinition, CardInstance, Combatant, CombatState } from '../../model';
+import type { CardDefinition, CardInstance, Entity, CombatState } from '../../model';
 import {
   DeckManager,
   discard,
@@ -12,7 +12,7 @@ import {
 
 // --- Test helpers ------------------------------------------------------------
 
-const PLAYER: Combatant = { hp: 50, maxHp: 50, block: 0, statuses: [] };
+const PLAYER: Entity = { hp: 50, baseMaxHp: 50, statuses: [] };
 
 function card(instanceId: string, defId = `def-${instanceId}`): CardInstance {
   return { instanceId, defId, upgraded: false };

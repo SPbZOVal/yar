@@ -24,3 +24,18 @@ export {
   reshuffleDiscardIntoDraw,
   resetPermanentDeck,
 } from './deck/deckManager';
+export {
+  EntityOps,
+  maxHp,
+  block,
+  attackPower,
+  takeDamage,
+  dealDamage,
+  gainBlock,
+  gainTempHp,
+  applyStatus,
+  tickStatuses,
+  clearBlock,
+  cleanupLifetime,
+} from './entity/entity';
+export type { EntityOp } from './entity/entity';

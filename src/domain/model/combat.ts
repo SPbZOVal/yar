@@ -1,24 +1,24 @@
-/** Enemies and combat state. See docs/architecture/03-data-model.md §7.5. */
+/** Entities and combat state. */
 import type { CardInstance } from './cards';
 import type { CombatPhase } from './enums';
+import type { Status } from './status';
 
-/** An active status (poison, weakness, ...) on a combatant. (§7.5) */
-export interface StatusEffect {
-  readonly id: string;
-  readonly stacks: number;
-  readonly remainingTurns: number;
-}
-
-/** Anything that can fight: has HP, a per-turn block, and statuses. (§7.5) */
-export interface Combatant {
+/**
+ * Anything that can fight, reduced to pure stats: current HP, a base max HP, and a
+ * list of typed {@link Status}es. The player and every enemy are both Entities.
+ *
+ * Effective values are **derived** from `statuses` (see the entity-operations
+ * module): `maxHp = baseMaxHp + MaxHpUp + TempHp`, `block = Σ Block`,
+ * `attackPower = Σ AttackUp`. So `hp` and `baseMaxHp` are the only stored numbers —
+ * statuses are the single source of truth for every modifier.
+ */
+export interface Entity {
   readonly hp: number;
-  readonly maxHp: number;
-  /** Temporary shield, reset at the start of each turn. */
-  readonly block: number;
-  readonly statuses: readonly StatusEffect[];
+  readonly baseMaxHp: number;
+  readonly statuses: readonly Status[];
 }
 
-/** A single deterministic enemy action; the player sees it in advance. (§12.3) */
+/** A single deterministic enemy action; the player sees it in advance. */
 export interface EnemyIntent {
   readonly kind: string;
   readonly value: number;
@@ -26,7 +26,7 @@ export interface EnemyIntent {
 
 /**
  * Immutable enemy template. Behaviour is a fixed, telegraphed `intents` cycle —
- * no RNG, to keep combat tactical. (§7.5, §12.3)
+ * no RNG, to keep combat tactical. `maxHp` seeds the instance's `baseMaxHp`.
  */
 export interface EnemyDefinition {
   readonly id: string;
@@ -37,10 +37,13 @@ export interface EnemyDefinition {
 }
 
 /**
- * A run-time enemy. Extends {@link Combatant} and references its
- * {@link EnemyDefinition} via `defId`; `currentIntentIndex` cycles each enemy turn.
+ * A run-time enemy: an {@link Entity} plus its template reference. `defId` resolves
+ * the {@link EnemyDefinition}; `currentIntentIndex` cycles each enemy turn.
+ * Composition (not inheritance) keeps the stat operations working on plain
+ * `Entity` values regardless of who owns them.
  */
-export interface EnemyInstance extends Combatant {
+export interface EnemyInstance {
+  readonly entity: Entity;
   readonly defId: string;
   readonly currentIntentIndex: number;
 }
@@ -54,10 +57,10 @@ export interface EnemyInstance extends Combatant {
  *  - `discardPile`— played Permanent cards (recycled via reshuffle within the combat);
  *  - `exhaustPile`— played SingleUse cards (gone for the rest of the combat/level).
  *
- * Pile transitions live in DeckManager; see §10.1.
+ * Pile transitions live in DeckManager.
  */
 export interface CombatState {
-  readonly player: Combatant;
+  readonly player: Entity;
   readonly enemies: readonly EnemyInstance[];
   readonly drawPile: readonly CardInstance[];
   readonly hand: readonly CardInstance[];
