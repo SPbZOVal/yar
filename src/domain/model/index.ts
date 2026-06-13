@@ -6,17 +6,41 @@ export {
   CardCategory,
   EffectKind,
   TargetType,
+  DeckOp,
   Rarity,
   NodeType,
   CombatPhase,
 } from './enums';
 export { Lifetime, StatusKind } from './status';
 
-export type { Effect, CardDefinition, CardInstance } from './cards';
+export type {
+  Effect,
+  ApplyStatusEffect,
+  DeckManipulationEffect,
+  CardDefinition,
+  CardInstance,
+} from './cards';
 export type { Status } from './status';
+export type {
+  StatusBehavior,
+  StatContribution,
+  StatKey,
+  StatusApplyCtx,
+  EntityOp,
+  ResolveCtx,
+  EffectHandler,
+  EffectHandlerMap,
+} from './behavior';
 export type { Weapon, Armor, PlayerState } from './player';
 export type { Collection, RunDeck } from './collection';
-export type { Entity, EnemyIntent, EnemyDefinition, EnemyInstance, CombatState } from './combat';
+export type {
+  Entity,
+  EnemyIntent,
+  EnemyDefinition,
+  EnemyInstance,
+  CombatState,
+  CombatantRef,
+} from './combat';
 export type {
   LootReward,
   QuestionData,

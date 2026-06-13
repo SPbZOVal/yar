@@ -1,148 +1,92 @@
 /**
- * Entity stat operations — the pure, immutable core of effect resolution.
+ * Entity stat operations — the policy layer of effect resolution.
  *
- * An entity is just fightable stats (`hp`, `baseMaxHp`, a list of typed statuses).
- * Every operation here is a pure transformation `Entity -> Entity`: it returns a new
- * entity and never mutates its inputs, with no randomness. Damage stays single-entity
- * too — a source entity *produces* a damage {@link EntityOp} that carries its resolved
- * hit, and that op is later applied to the target, so the attacker and target never
- * meet in one call. This is the "a card applied to an entity transforms its stats"
- * shape the resolver builds on.
- *
- * All combat modifiers are statuses, so effective values are derived on read rather
- * than stored: `maxHp = baseMaxHp + MaxHpUp + TempHp`, `block = Σ Block`,
- * `attackPower = Σ AttackUp`. This keeps `statuses` the single source of truth and
- * means callers never pass a weapon bonus or status modifier — those are read off
- * the entity itself.
+ * Every operation is a pure, immutable transformation `Entity -> Entity` (damage is a
+ * source entity *producing* an {@link EntityOp} applied to the target, so attacker and
+ * target never meet in one call). All per-kind behavior is data-driven: the derived
+ * readers and ops consult `STATUS_REGISTRY` rather than switching on a kind, so adding
+ * a status changes nothing here. Low-level math lives in registry-free
+ * `engine/entityMechanics`; this module reads the registry, mechanics never do.
  */
 import { Lifetime, StatusKind } from '../model';
-import type { Entity, Status } from '../model';
-import { damageFormula } from '../ruleset/ruleset';
+import type { Entity, EntityOp } from '../model';
+import { STATUS_REGISTRY } from '../registry/statusRegistry';
+import { LIFETIME_ORDER, clampHpTo, damageInto, storeStatus } from '../engine/entityMechanics';
 
-/** A pure transformation of one entity's stats — the atom of effect resolution. */
-export type EntityOp = (e: Entity) => Entity;
+export type { EntityOp };
 
-// --- internal helpers --------------------------------------------------------
-
-/** Sum the stacks of every status of `kind` on `e`. */
-function sumStacks(e: Entity, kind: StatusKind): number {
-  return e.statuses.reduce((acc, s) => (s.kind === kind ? acc + s.stacks : acc), 0);
+interface DerivedStats {
+  readonly attack: number;
+  readonly block: number;
+  readonly maxHp: number;
 }
 
-/** Build a status, omitting `remainingTurns` when undefined (exactOptionalPropertyTypes). */
-function makeStatus(
-  kind: StatusKind,
-  stacks: number,
-  lifetime: Lifetime,
-  remainingTurns?: number,
-): Status {
-  return remainingTurns === undefined
-    ? { kind, stacks, lifetime }
-    : { kind, stacks, lifetime, remainingTurns };
-}
-
-/** The longer of two optional durations; `undefined` means "no decay". */
-function maxDuration(a: number | undefined, b: number | undefined): number | undefined {
-  if (a === undefined) return b;
-  if (b === undefined) return a;
-  return Math.max(a, b);
-}
-
-/** Spend `amount` stacks of `kind`, draining statuses in order and dropping emptied ones. */
-function reduceStatus(e: Entity, kind: StatusKind, amount: number): Entity {
-  if (amount <= 0) return e;
-  let remaining = amount;
-  const statuses: Status[] = [];
+/** One pass over `e`'s statuses, folding every kind's registered stat contribution. */
+function deriveStats(e: Entity): DerivedStats {
+  let attack = 0;
+  let blk = 0;
+  let max = e.baseMaxHp;
   for (const s of e.statuses) {
-    if (s.kind !== kind || remaining <= 0) {
-      statuses.push(s);
-      continue;
-    }
-    const spent = Math.min(s.stacks, remaining);
-    remaining -= spent;
-    const left = s.stacks - spent;
-    if (left > 0) statuses.push({ ...s, stacks: left });
+    const c = STATUS_REGISTRY[s.kind].stat?.(s);
+    if (c === undefined) continue;
+    attack += c.attack ?? 0;
+    blk += c.block ?? 0;
+    max += c.maxHp ?? 0;
   }
-  return { ...e, statuses };
+  return { attack, block: blk, maxHp: max };
 }
-
-/** Clamp `hp` into `[0, maxHp(e)]` after a change that may have lowered the cap. */
-function clampHp(e: Entity): Entity {
-  const hp = Math.min(maxHp(e), Math.max(0, e.hp));
-  return hp === e.hp ? e : { ...e, hp };
-}
-
-/** Order used by {@link cleanupLifetime}: a boundary clears everything at or below it. */
-const LIFETIME_ORDER: Record<Lifetime, number> = {
-  [Lifetime.Fight]: 0,
-  [Lifetime.Run]: 1,
-  [Lifetime.Life]: 2,
-  [Lifetime.Permanent]: 3,
-};
-
-// --- derived readers ---------------------------------------------------------
 
 /** Effective max HP: `baseMaxHp` plus every max-raising status (MaxHpUp, TempHp). */
-export function maxHp(e: Entity): number {
-  return e.baseMaxHp + sumStacks(e, StatusKind.MaxHpUp) + sumStacks(e, StatusKind.TempHp);
-}
+export const maxHp = (e: Entity): number => deriveStats(e).maxHp;
 
 /** Total Block currently shielding `e`. */
-export function block(e: Entity): number {
-  return sumStacks(e, StatusKind.Block);
-}
+export const block = (e: Entity): number => deriveStats(e).block;
 
 /** Outgoing-damage bonus contributed by `e`'s statuses (weapon + strength). */
-export function attackPower(e: Entity): number {
-  return sumStacks(e, StatusKind.AttackUp);
-}
+export const attackPower = (e: Entity): number => deriveStats(e).attack;
 
-// --- operations --------------------------------------------------------------
-
-/**
- * Damage an entity directly receives: its Block absorbs first, then the remainder
- * reduces HP (never below 0). The exact HP loss comes from `RuleSet.damageFormula`,
- * so the formula stays the single tuning point.
- */
+/** Damage an entity directly receives: Block absorbs, the remainder reduces HP. */
 export function takeDamage(e: Entity, amount: number): Entity {
-  const incoming = Math.max(0, amount);
-  const absorbed = Math.min(block(e), incoming);
-  const hpLoss = damageFormula(amount, 0, 0, block(e));
-  const afterBlock = reduceStatus(e, StatusKind.Block, absorbed);
-  return { ...afterBlock, hp: Math.max(0, afterBlock.hp - hpLoss) };
+  return damageInto(e, amount);
 }
 
 /**
  * A source entity produces a damage op carrying its resolved hit (`base` plus the
- * source's own `attackPower`). Applying the returned {@link EntityOp} to a target
- * deals that damage — the two entities never appear in one call.
+ * source's own `attackPower`). Applying the op to a target deals that damage.
  */
 export function dealDamage(source: Entity, base: number): EntityOp {
   const amount = base + attackPower(source);
-  return (target) => takeDamage(target, amount);
-}
-
-/** Add `value` fight-scoped Block to `e`. No-op for non-positive values. */
-export function gainBlock(e: Entity, value: number): Entity {
-  return applyStatus(e, StatusKind.Block, value, Lifetime.Fight);
+  return (target) => damageInto(target, amount);
 }
 
 /**
- * Grant `value` temporary HP: a fight-scoped bonus to max HP plus an equal heal, so
- * current HP rises above the normal cap and is restored at fight end (when the
- * fight-lifetime TempHp status is cleaned up). No-op for non-positive values.
+ * Apply a status to `target` from a given `source`. Kinds with an `apply` strategy
+ * (Damage scales with the source's attack, TempHp heals) use it; the rest store/merge
+ * and re-clamp HP. No-op for non-positive `stacks`.
  */
-export function gainTempHp(e: Entity, value: number): Entity {
-  if (value <= 0) return e;
-  const raised = applyStatus(e, StatusKind.TempHp, value, Lifetime.Fight);
-  return { ...raised, hp: Math.min(maxHp(raised), raised.hp + value) };
+export function applyStatusFrom(
+  target: Entity,
+  kind: StatusKind,
+  stacks: number,
+  lifetime: Lifetime,
+  source: Entity,
+  duration?: number,
+): Entity {
+  if (stacks <= 0) return target;
+  const behavior = STATUS_REGISTRY[kind];
+  if (behavior.apply) {
+    return behavior.apply(target, {
+      source,
+      stacks,
+      lifetime,
+      ...(duration !== undefined ? { duration } : {}),
+    });
+  }
+  const stored = storeStatus(target, kind, stacks, lifetime, duration);
+  return clampHpTo(stored, maxHp(stored));
 }
 
-/**
- * Add a status to `e`. Statuses of the same `kind` and `lifetime` merge (stacks sum,
- * `remainingTurns` becomes the longer of the two); other combinations stay separate.
- * No-op for non-positive `stacks`. HP is re-clamped in case the cap rose.
- */
+/** Apply a status to `e` from itself (self-buff / debuff). No-op for non-positive `stacks`. */
 export function applyStatus(
   e: Entity,
   kind: StatusKind,
@@ -150,34 +94,35 @@ export function applyStatus(
   lifetime: Lifetime,
   duration?: number,
 ): Entity {
-  if (stacks <= 0) return e;
-  let merged = false;
-  const statuses = e.statuses.map((s) => {
-    if (!merged && s.kind === kind && s.lifetime === lifetime) {
-      merged = true;
-      return makeStatus(kind, s.stacks + stacks, lifetime, maxDuration(s.remainingTurns, duration));
-    }
-    return s;
-  });
-  const next: Entity = merged
-    ? { ...e, statuses }
-    : { ...e, statuses: [...e.statuses, makeStatus(kind, stacks, lifetime, duration)] };
-  return clampHp(next);
+  return applyStatusFrom(e, kind, stacks, lifetime, e, duration);
+}
+
+/** Add `value` fight-scoped Block to `e`. No-op for non-positive values. */
+export function gainBlock(e: Entity, value: number): Entity {
+  return applyStatus(e, StatusKind.Block, value, Lifetime.Fight);
+}
+
+/** Grant `value` temporary HP (heal + fight-scoped max bonus). No-op for non-positive values. */
+export function gainTempHp(e: Entity, value: number): Entity {
+  return applyStatus(e, StatusKind.TempHp, value, Lifetime.Fight);
 }
 
 /**
- * Advance one turn tick: apply Poison damage, decrement every status that decays by
- * turns, and drop those that reach 0. HP is re-clamped after expiries.
+ * Advance one turn tick: run every status' `onTick` (poison, …), decrement statuses
+ * that decay by turns, drop expired ones, and re-clamp HP.
  */
 export function tickStatuses(e: Entity): Entity {
-  const poison = sumStacks(e, StatusKind.Poison);
-  const statuses = e.statuses
+  const afterTick = e.statuses.reduce(
+    (acc, s) => STATUS_REGISTRY[s.kind].onTick?.(acc, s) ?? acc,
+    e,
+  );
+  const statuses = afterTick.statuses
     .map((s) =>
       s.remainingTurns === undefined ? s : { ...s, remainingTurns: s.remainingTurns - 1 },
     )
     .filter((s) => s.remainingTurns === undefined || s.remainingTurns > 0);
-  const ticked: Entity = { ...e, statuses, hp: Math.max(0, e.hp - poison) };
-  return clampHp(ticked);
+  const ticked: Entity = { ...afterTick, statuses };
+  return clampHpTo(ticked, maxHp(ticked));
 }
 
 /** Reset Block (start-of-turn). Returns the same reference when there is no Block. */
@@ -187,16 +132,16 @@ export function clearBlock(e: Entity): Entity {
 }
 
 /**
- * Remove every status whose lifetime ends at `boundary` or sooner (Fight < Run <
- * Life < Permanent): a Fight boundary clears only Fight statuses, a Run boundary
- * clears Fight + Run, and so on. HP is re-clamped since removing a max-raising
- * status lowers the cap. Returns the same reference when nothing is removed.
+ * Remove every status whose lifetime ends at `boundary` or sooner (Instant < Fight <
+ * Run < Life < Permanent), re-clamping HP since a removed max-raising status lowers the
+ * cap. Returns the same reference when nothing is removed.
  */
 export function cleanupLifetime(e: Entity, boundary: Lifetime): Entity {
   const cutoff = LIFETIME_ORDER[boundary];
   const statuses = e.statuses.filter((s) => LIFETIME_ORDER[s.lifetime] > cutoff);
   if (statuses.length === e.statuses.length) return e;
-  return clampHp({ ...e, statuses });
+  const cleaned: Entity = { ...e, statuses };
+  return clampHpTo(cleaned, maxHp(cleaned));
 }
 
 /** Convenience aggregate so callers can `import { EntityOps }`. */

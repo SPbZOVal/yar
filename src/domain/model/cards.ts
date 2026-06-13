@@ -1,19 +1,35 @@
-/** Card data model. See docs/architecture/03-data-model.md §7.1. */
-import type { CardCategory, CardType, EffectKind, Rarity, TargetType } from './enums';
+/** Card data model. */
+import type { CardCategory, CardType, DeckOp, Rarity, TargetType } from './enums';
+import type { Lifetime, StatusKind } from './status';
 
 /**
- * A single effect of a card. Damage / block / temp-HP magnitudes are read from
- * `value` for the matching `kind` (there is no separate damage field). See §12.2.
+ * Apply `value` stacks of a `status` (with its `lifetime`) to the recipient(s).
+ * This covers every entity effect: a Block shield, a Poison, an AttackUp buff, a
+ * "+heart" MaxHpUp — and one-time damage (`status: 'Damage'`, `lifetime: 'instant'`),
+ * whose magnitude is read from `value` and scaled by the source's attack power.
  */
-export interface Effect {
-  readonly kind: EffectKind;
+export interface ApplyStatusEffect {
+  readonly kind: 'ApplyStatus';
   readonly value: number;
   readonly target: TargetType;
-  /** Status identifier, only meaningful when `kind === ApplyStatus`. */
-  readonly statusId?: string;
-  /** Duration in turns, only meaningful for status/temporary effects. */
+  readonly status: StatusKind;
+  readonly lifetime: Lifetime;
+  /** Turn-decay duration, only meaningful for stored statuses (e.g. Poison). */
   readonly duration?: number;
 }
+
+/** Operate on the deck piles (draw `value` cards, reshuffle the discard, …). */
+export interface DeckManipulationEffect {
+  readonly kind: 'DeckManipulation';
+  readonly op: DeckOp;
+  readonly value: number;
+}
+
+/**
+ * A single card effect, as a discriminated union on `kind`. Magnitudes live in
+ * `value` (status stacks / damage / cards drawn) — there is no separate field.
+ */
+export type Effect = ApplyStatusEffect | DeckManipulationEffect;
 
 /**
  * Immutable template of a card. Shared by every instance with the same `id`.

@@ -9,7 +9,7 @@
 ## Содержание главы
 
 4. [Архитектура системы (C4)](#4-архитектура-системы-c4)
-5. [Архитектура классов](#5-архитектура-классов)
+5. [Архитектура домена](#5-архитектура-домена)
 6. [Управление состоянием](#6-управление-состоянием)
 
 Эта глава описывает **структуру** приложения: слои C4, доменные сервисы и поток данных стора. Структуры данных, которыми они оперируют, вынесены в главу [«Модель данных»](03-data-model.md).
@@ -66,118 +66,101 @@ C4Component
     title Компоненты — Domain Engine
 
     Container_Boundary(domain, "Domain Engine") {
-        Component(combat, "CombatEngine", "TS", "Ход боя, розыгрыш карт, расчёт урона")
+        Component(combat, "combatReducer + selectors", "TS", "Чистая редукция действий боя, исход")
         Component(deck, "DeckManager", "TS", "Шафл, добор, сброс, exhaust одноразовых")
-        Component(cardres, "CardResolver", "TS", "Применение эффектов карт к состоянию")
+        Component(cardres, "CardResolver", "TS", "Применение эффектов карты (свёртка по реестру)")
+        Component(reg, "Registries", "TS (данные)", "STATUS/EFFECT/DECK_OP — поведение как данные")
         Component(gen, "LevelGenerator", "TS", "k-дольный граф, расстановка контента")
         Component(loot, "LootSystem", "TS", "Генерация наград из сундуков/боссов")
         Component(rules, "RuleSet / Balance", "TS", "Константы, формулы, баланс")
     }
 
     Rel(combat, deck, "draw / discard / exhaust")
-    Rel(combat, cardres, "play(card)")
-    Rel(cardres, rules, "формулы урона/эффектов")
+    Rel(combat, cardres, "applyCard")
+    Rel(cardres, reg, "ищет обработчик эффекта")
+    Rel(reg, rules, "формулы урона/эффектов")
     Rel(gen, rules, "параметры генерации")
     Rel(combat, loot, "награда после боя")
 ```
 
-Поведение этих компонентов раскрыто в главах [«Игровые системы»](04-gameplay.md) (карточная система) и [«Генерация и бой»](05-generation-combat.md) (LevelGenerator, CombatEngine, RuleSet).
+Поведение этих компонентов раскрыто в главах [«Игровые системы»](04-gameplay.md) (карточная система) и [«Генерация и бой»](05-generation-combat.md) (combatReducer, RuleSet).
 
 ---
 
-## 5. Архитектура классов
+## 5. Архитектура домена
 
-Доменный движок построен на чистых сервисах и иммутабельных reducer-функциях. React-компоненты лишь подписаны на стор.
+Доменный слой — **чистое функциональное ядро с data-driven диспетчеризацией**. Поведение статусов, эффектов, дека-операций, карт и врагов задаётся **данными в реестрах**, а движок — это набор обобщённых интерпретаторов (редьюсеры, селекторы, op-ы сущностей), которые эти данные исполняют. Поэтому добавить статус/эффект/карту/врага = добавить запись в реестр или контент, не трогая движок (открыт для расширения, закрыт для изменения — проверяется компилятором через `satisfies Record<…>`). Случайность течёт через монаду `Rand` (детерминизм по `seed`), а композиция op-ов — через комбинаторы `pipe`/`flow`.
+
+### 5.1. Слои
 
 ```mermaid
-classDiagram
-    class GameStore {
-        +RunState state
-        +startRun(seed)
-        +buildDeck(cardIds)
-        +enterNode(nodeId)
-        +playCard(instanceId, target)
-        +endTurn()
-        +resolveQuestion(answerIndex)
-        +collectLoot(reward)
-        +onPlayerDeath()
-    }
+flowchart TB
+    subgraph model["model/ — только типы"]
+        M["Entity · Status · Effect · CardDefinition · CombatState · CombatAction · поведенческие контракты"]
+    end
+    subgraph content["content/ — чистые данные"]
+        C["cards.ts · enemies.ts"]
+    end
+    subgraph registry["registry/ — таблицы поведения (данные)"]
+        SR["STATUS_REGISTRY"]
+        ER["EFFECT_HANDLERS"]
+        DR["DECK_OP_HANDLERS"]
+        CR["CARD_DEFS · ENEMY_DEFS"]
+    end
+    subgraph engine["engine/ — обобщённые интерпретаторы (чистые)"]
+        EM["entityMechanics (без реестра)"]
+        EO["entity ops (политика)"]
+        RES["CardResolver.applyCard"]
+        DECK["DeckManager"]
+        RED["combatReducer + selectors"]
+    end
+    subgraph toolkit["инструменты"]
+        RND["Rand-монада (rng)"]
+        FN["fn: pipe / flow"]
+        RULE["RuleSet (формулы)"]
+    end
+    STORE["Store — тонкая оболочка (Zustand)"]
 
-    class CombatEngine {
-        +startCombat(deck, enemies) CombatState
-        +playCard(state, card, target) CombatState
-        +endPlayerTurn(state) CombatState
-        +runEnemyTurn(state) CombatState
-        +checkOutcome(state) CombatPhase
-    }
-
-    class DeckManager {
-        +shuffle(cards, seed) CardInstance[]
-        +draw(state, n) CombatState
-        +discard(state, card) CombatState
-        +exhaust(state, card) CombatState
-        +reshuffleDiscardIntoDraw(state) CombatState
-        +resetPermanentDeck(deck) CardInstance[]
-    }
-
-    class CardResolver {
-        +applyEffects(state, card, target) CombatState
-        -applyDamage(state, target, value)
-        -applyBlock(state, value)
-        -applyStatus(state, target, status)
-    }
-
-    class LevelGenerator {
-        +generate(seed, params) LevelGraph
-        -buildKPartiteSkeleton(layers)
-        -placeContent(nodes, params)
-        -placeBosses(graph)
-    }
-
-    class LootSystem {
-        +rollChestLoot(seed, depth) LootReward
-        +rollBossLoot(seed, isEnd) LootReward
-    }
-
-    class RuleSet {
-        +damageFormula(base, weapon, statuses) number
-        +maxHpFormula(base, armor, specials) number
-        +GENERATION_PARAMS
-        +BALANCE_CONSTANTS
-    }
-
-    class PersistenceService {
-        +saveCollection(Collection)
-        +loadCollection() Collection
-        +saveMeta(meta)
-        +loadMeta()
-    }
-
-    GameStore --> CombatEngine : использует
-    GameStore --> LevelGenerator : использует
-    GameStore --> LootSystem : использует
-    GameStore --> PersistenceService : сохраняет/грузит
-    CombatEngine --> DeckManager : управляет колодой
-    CombatEngine --> CardResolver : применяет эффекты
-    CardResolver --> RuleSet : формулы
-    LevelGenerator --> RuleSet : параметры
-    LootSystem --> RuleSet : вероятности
+    content --> registry
+    registry --> engine
+    model -. типы .-> engine
+    toolkit --> engine
+    engine --> STORE
 ```
+
+Граф зависимостей ацикличен: `entityMechanics` не знает о реестрах; реестры зовут только механику; политика (`entity ops`, резолвер) читает реестры, но реестры её не импортируют.
+
+### 5.2. Поток данных (action → reducer → selector)
+
+```mermaid
+flowchart LR
+    A["Action (данные)"] --> R["reducer(deps, state, action)"]
+    R -->|"вызывает"| ENG["applyCard · DeckManager · entity ops · Rand"]
+    R --> S["новый immutable state"]
+    S --> SEL["selector (checkOutcome…)"]
+    SEL --> UI["UI / Skia"]
+```
+
+Однонаправленный поток «UI → Store → Domain → Store → UI» сохраняется (см. [§6](#6-управление-состоянием)); меняется лишь природа «Domain» — это **редьюсеры и селекторы**, а не сервис-классы. Реализация боя — `combatReducer` поверх `applyCard`, `DeckManager` и op-ов сущностей; правила боя — в [§12](05-generation-combat.md#12-боевая-система).
 
 ### Разделение ответственности
 
-| Класс/Сервис | Чистый? | Ответственность |
-|--------------|---------|-----------------|
-| `GameStore` | Нет (Zustand) | Оркестрация, единый источник истины, диспатч действий. |
-| `CombatEngine` | Да | Полный цикл боя, переходы фаз. См. [§12](05-generation-combat.md#12-боевая-система). |
+| Модуль | Чистый? | Ответственность |
+|--------|---------|-----------------|
+| `Store` | Нет (Zustand) | Тонкая оболочка: связывает `deps`, диспатчит действия в редьюсеры, отдаёт селекторы. |
+| `combatReducer` | Да | Чистая редукция действий боя (`StartCombat`/`PlayCard`/`EndTurn`). См. [§12](05-generation-combat.md#12-боевая-система). |
+| `selectors` (`checkOutcome`) | Да | Производное состояние (исход боя); переходы фаз — только в редьюсерах. |
+| Реестры (`STATUS_`/`EFFECT_`/`DECK_OP_`) | Да (данные) | Поведение статусов/эффектов/деки как данные — точка расширения. |
+| `CardResolver` | Да | Применение эффектов карты (обобщённая свёртка по реестру эффектов). |
 | `DeckManager` | Да | Жизненный цикл карт: шафл/добор/сброс/exhaust. См. [§10](04-gameplay.md#10-карточная-система). |
-| `CardResolver` | Да | Применение эффектов карт к состоянию. |
+| entity ops + `entityMechanics` | Да | Стат-операции сущностей (урон/блок/статусы), data-driven по `STATUS_REGISTRY`. |
+| `Rand` | Да | Детерминированная случайность (seeded-State монада). |
+| `RuleSet` | Да | Константы баланса и формулы (единая точка тюнинга). |
 | `LevelGenerator` | Да | Построение k-дольного графа и контента. См. [§11](05-generation-combat.md#11-процедурная-генерация-уровня). |
 | `LootSystem` | Да | Генерация наград. |
-| `RuleSet` | Да | Константы баланса и формулы (единая точка тюнинга). |
 | `PersistenceService` | Нет (I/O) | Сохранение/загрузка через MMKV. |
 
-> Все чистые сервисы детерминированы относительно `seed` — это критично для воспроизводимости забега и тестирования (см. [нефункциональные требования](06-development.md#131-нефункциональные-требования)). Структуры `RunState`, `CombatState`, `LevelGraph`, которыми оперируют эти сервисы, описаны в главе [«Модель данных»](03-data-model.md).
+> Все чистые модули детерминированы относительно `seed` — это критично для воспроизводимости забега и тестирования (см. [нефункциональные требования](06-development.md#131-нефункциональные-требования)). Структуры `RunState`, `CombatState`, `LevelGraph` описаны в главе [«Модель данных»](03-data-model.md).
 
 ---
 
@@ -185,12 +168,12 @@ classDiagram
 
 ### 6.1. Принцип
 
-Однонаправленный поток данных: UI диспатчит действия в стор, стор вызывает чистые функции домена, получает новое иммутабельное состояние и отдаёт его обратно в UI через селекторы.
+Однонаправленный поток данных: UI диспатчит действия в стор, стор вызывает **редьюсеры домена** (`set(s => combatReducer(deps, s, action))`), получает новое иммутабельное состояние и отдаёт его обратно в UI через селекторы. Логика — в редьюсерах; стор лишь диспатчит и читает производное.
 
 ```mermaid
 flowchart TB
-    UI[React Components / Skia] -->|action| STORE[GameStore Zustand]
-    STORE -->|вызов чистой функции| ENGINE[Domain Engine pure TS]
+    UI[React Components / Skia] -->|action| STORE[Store Zustand]
+    STORE -->|combatReducer deps,state,action| ENGINE[Domain: редьюсеры + селекторы pure TS]
     ENGINE -->|новый immutable state| STORE
     STORE -->|selector| UI
     STORE -->|side-effect: save| MMKV[(MMKV)]

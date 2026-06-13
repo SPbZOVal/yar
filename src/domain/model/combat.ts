@@ -2,6 +2,7 @@
 import type { CardInstance } from './cards';
 import type { CombatPhase } from './enums';
 import type { Status } from './status';
+import type { Seed } from '../rng/rng';
 
 /**
  * Anything that can fight, reduced to pure stats: current HP, a base max HP, and a
@@ -69,4 +70,11 @@ export interface CombatState {
   readonly energy: number;
   readonly turn: number;
   readonly phase: CombatPhase;
+  /** Immutable RNG cursor; deck shuffles/draws thread it so a combat replays exactly. */
+  readonly rng: Seed;
 }
+
+/** Addresses a combatant inside a {@link CombatState}: the player, or an enemy by index. */
+export type CombatantRef =
+  | { readonly side: 'player' }
+  | { readonly side: 'enemy'; readonly index: number };

@@ -29,25 +29,34 @@ export const CardCategory = {
 } as const;
 export type CardCategory = (typeof CardCategory)[keyof typeof CardCategory];
 
-/** Kind of a single card effect; its magnitude lives in `Effect.value`. (§7.1, §12.2) */
+/**
+ * Kind of a single card effect. Deliberately tiny and generalized: an effect either
+ * changes an entity's statuses (`ApplyStatus` — every buff/debuff, including one-time
+ * Damage) or manipulates the deck (`DeckManipulation`). Magnitudes live in `Effect.value`.
+ */
 export const EffectKind = {
-  DealDamage: 'DealDamage',
-  GainBlock: 'GainBlock',
-  GainTempHp: 'GainTempHp',
   ApplyStatus: 'ApplyStatus',
-  DrawCards: 'DrawCards',
-  AddMaxHp: 'AddMaxHp',
-  UpgradeWeapon: 'UpgradeWeapon',
+  DeckManipulation: 'DeckManipulation',
 } as const;
 export type EffectKind = (typeof EffectKind)[keyof typeof EffectKind];
 
-/** Targeting mode of an effect. (§7.1) */
+/**
+ * Who an effect lands on: the caster (`Self`) or the targets the engine selected
+ * (`Targets`). Single-vs-multiple targeting is the caller's choice of how many targets
+ * it passes, not encoded here.
+ */
 export const TargetType = {
-  SingleEnemy: 'SingleEnemy',
-  AllEnemies: 'AllEnemies',
   Self: 'Self',
+  Targets: 'Targets',
 } as const;
 export type TargetType = (typeof TargetType)[keyof typeof TargetType];
+
+/** Deck-level operation for a `DeckManipulation` effect. */
+export const DeckOp = {
+  Draw: 'Draw',
+  Reshuffle: 'Reshuffle',
+} as const;
+export type DeckOp = (typeof DeckOp)[keyof typeof DeckOp];
 
 /** Card rarity. `Boss` cards drop only after the root (end) boss. (§7.1) */
 export const Rarity = {
