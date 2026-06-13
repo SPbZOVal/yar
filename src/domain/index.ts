@@ -61,7 +61,7 @@ export type {
   PlayCardAction,
   EndTurnAction,
 } from './engine/combat';
-export { runReducer } from './engine/run';
+export { runReducer, defaultRunDeps } from './engine/run';
 export type { RunAction, RunDeps } from './engine/run';
 export { generateLevel, validate, defaultLevelGenDeps } from './engine/level';
 export type { LevelGenDeps } from './engine/level';

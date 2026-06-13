@@ -82,6 +82,8 @@ export const BALANCE_CONSTANTS = {
   baseMaxHp: 50,
   /** Max HP granted per "+heart" special card. */
   specialHeartBonus: 5,
+  /** Cap on cards selected from the collection into a run deck before a level. */
+  maxDeckSize: 3,
 } as const;
 
 /** Convenience aggregate so callers can `import { RuleSet }`. */

@@ -5,25 +5,31 @@
  * `GenerateLevel` builds a fresh {@link LevelGraph} from the run seed (deterministic per
  * `levelIndex`). `EnterNode` walks that graph: it validates the move is along an edge from
  * the current node, marks the target visited, advances `currentNodeId`, and picks the
- * screen by node type. Two integrations are still deferred to a follow-up PR (they need a
- * `RunState.collection` model change):
- *  - combat/boss nodes will build a `StartCombat` action from the run deck + node enemies
- *    (combat seed `seedFrom(`${state.seed}:combat:${nodeId}`)`) and store the `CombatState`;
- *    for now they only navigate to the combat screen.
- *  - `CollectLoot` will route permanents/equipment to the Collection; for now it only fills
- *    the level's single-use bag.
+ * screen by node type. Combat/boss nodes additionally build a `StartCombat` from the run
+ * deck (resolved against `collection`) + the node's enemies (combat seed
+ * `seedFrom(`${seed}:combat:${nodeId}`)`) and store the resulting {@link CombatState}.
+ * `CollectLoot` routes permanent cards into `collection`, single-use cards into the level
+ * bag. `ResolveCombat` reads a finished fight back into the run: victory syncs player HP and
+ * resumes navigation; defeat restarts the run.
  */
 import { seedFrom } from '../../rng/rng';
 import type { Seed } from '../../rng/rng';
+import { CardType, CombatPhase } from '../../model';
 import type {
+  CardInstance,
+  Collection,
+  CombatState,
+  EnemyDefinition,
   GenerationParams,
   LevelGraph,
   LevelNode,
   LootReward,
   PlayerState,
+  RunDeck,
   RunState,
   ScreenState,
 } from '../../model';
+import { checkOutcome } from '../combat';
 
 export type RunAction =
   | { readonly type: 'StartRun'; readonly seed: string; readonly player: PlayerState }
@@ -31,17 +37,26 @@ export type RunAction =
   | { readonly type: 'GenerateLevel' }
   | { readonly type: 'EnterNode'; readonly nodeId: string }
   | { readonly type: 'CollectLoot'; readonly reward: LootReward }
+  | { readonly type: 'ResolveCombat' }
   | { readonly type: 'OnPlayerDeath' };
 
-/** Config the run reducer needs (extended as combat delegation/persistence land). */
+/** Config the run reducer needs (combat construction is pre-bound in `startCombat`). */
 export interface RunDeps {
   readonly maxDeckSize: number;
   readonly generationParams: GenerationParams;
   /** Level generator with its content deps pre-bound (see `defaultLevelGenDeps`). */
   readonly generateLevel: (params: GenerationParams, seed: Seed) => LevelGraph;
+  /** Build a fresh CombatState from the run deck + node enemies (combat deps pre-bound). */
+  readonly startCombat: (
+    player: PlayerState,
+    enemies: readonly EnemyDefinition[],
+    deck: readonly CardInstance[],
+    seed: Seed,
+  ) => CombatState;
 }
 
 const DECK_BUILDING: ScreenState = { name: 'deckBuilding' };
+const EMPTY_COLLECTION: Collection = { ownedCards: [], ownedWeapons: [], ownedArmor: [] };
 
 function reduceStartRun(
   deps: RunDeps,
@@ -51,6 +66,7 @@ function reduceStartRun(
   return {
     player: action.player,
     runDeck: { cardInstanceIds: [], maxDeckSize: deps.maxDeckSize },
+    collection: EMPTY_COLLECTION,
     currentLevel: null,
     levelIndex: 0,
     singleUseBag: [],
@@ -75,12 +91,9 @@ function reduceGenerateLevel(deps: RunDeps, state: RunState): RunState {
   return { ...state, currentLevel: level, screen: { name: 'level' } };
 }
 
-/** Which screen a node routes to. Combat/boss navigate only here; combat starts in PR2. */
+/** Which screen a non-combat node routes to. (Combat/boss start a fight in `reduceEnterNode`.) */
 function screenForNode(node: LevelNode): ScreenState {
   switch (node.content?.kind) {
-    case 'combat':
-    case 'boss':
-      return { name: 'combat' };
     case 'loot':
       return { name: 'loot' };
     case 'question':
@@ -90,8 +103,16 @@ function screenForNode(node: LevelNode): ScreenState {
   }
 }
 
+/** Resolve the run deck's instance ids against the collection, dropping any unknown ids. */
+function resolveDeck(runDeck: RunDeck, collection: Collection): readonly CardInstance[] {
+  const byId = new Map(collection.ownedCards.map((c) => [c.instanceId, c]));
+  return runDeck.cardInstanceIds
+    .map((id) => byId.get(id))
+    .filter((c): c is CardInstance => c !== undefined);
+}
+
 function reduceEnterNode(
-  _deps: RunDeps,
+  deps: RunDeps,
   state: RunState,
   action: Extract<RunAction, { type: 'EnterNode' }>,
 ): RunState {
@@ -106,7 +127,16 @@ function reduceEnterNode(
   const nodes = new Map(level.nodes);
   nodes.set(action.nodeId, { ...target, visited: true });
   const currentLevel: LevelGraph = { ...level, nodes, currentNodeId: action.nodeId };
-  // PR2: combat/boss nodes will also build a StartCombat and set `combat` here.
+
+  const content = target.content;
+  if (content?.kind === 'combat' || content?.kind === 'boss') {
+    const enemies = content.kind === 'combat' ? content.enemies : [content.boss];
+    // singleUseBag is not yet fed into the combat deck (deferred).
+    const deck = resolveDeck(state.runDeck, state.collection);
+    const seed = seedFrom(`${state.seed}:combat:${action.nodeId}`);
+    const combat = deps.startCombat(state.player, enemies, deck, seed);
+    return { ...state, currentLevel, combat, screen: { name: 'combat' } };
+  }
   return { ...state, currentLevel, screen: screenForNode(target) };
 }
 
@@ -115,13 +145,25 @@ function reduceCollectLoot(
   state: RunState,
   action: Extract<RunAction, { type: 'CollectLoot' }>,
 ): RunState {
-  // SKETCH: single-use cards go to the level bag; permanents/equipment → Collection later.
-  const ids = action.reward.cards.map((c) => c.id);
-  return { ...state, singleUseBag: [...state.singleUseBag, ...ids] };
+  let owned = state.collection.ownedCards;
+  let bag = state.singleUseBag;
+  for (const def of action.reward.cards) {
+    if (def.type === CardType.Permanent) {
+      // Deterministic id: an append-only collection's length is a collision-free counter.
+      owned = [
+        ...owned,
+        { instanceId: `${def.id}#${owned.length}`, defId: def.id, upgraded: false },
+      ];
+    } else {
+      bag = [...bag, def.id];
+    }
+  }
+  // TODO: equipment loot (reward.weapon/armor) once the loot rollers produce it.
+  return { ...state, singleUseBag: bag, collection: { ...state.collection, ownedCards: owned } };
 }
 
-function reduceOnPlayerDeath(_deps: RunDeps, state: RunState): RunState {
-  // Death restarts the run: full HP, fresh level/combat/bag. Meta survives elsewhere.
+/** Reset the run to deck-building (death / defeat). `collection` survives via `...state`. */
+function restartRun(state: RunState): RunState {
   return {
     ...state,
     player: { ...state.player, currentHp: state.player.maxHp },
@@ -131,6 +173,26 @@ function reduceOnPlayerDeath(_deps: RunDeps, state: RunState): RunState {
     combat: null,
     screen: DECK_BUILDING,
   };
+}
+
+function reduceResolveCombat(_deps: RunDeps, state: RunState): RunState {
+  const combat = state.combat;
+  if (combat === null) return state;
+  const outcome = checkOutcome(combat); // derive from HP; don't trust a possibly-stale phase
+  if (outcome === CombatPhase.Defeat) return restartRun(state);
+  if (outcome === CombatPhase.Victory) {
+    return {
+      ...state,
+      player: { ...state.player, currentHp: Math.max(0, combat.player.hp) },
+      combat: null,
+      screen: { name: 'level' }, // resume navigation
+    };
+  }
+  return state; // still ongoing → no-op
+}
+
+function reduceOnPlayerDeath(_deps: RunDeps, state: RunState): RunState {
+  return restartRun(state);
 }
 
 type RunReducerTable = {
@@ -147,6 +209,7 @@ const TABLE: RunReducerTable = {
   GenerateLevel: reduceGenerateLevel,
   EnterNode: reduceEnterNode,
   CollectLoot: reduceCollectLoot,
+  ResolveCombat: reduceResolveCombat,
   OnPlayerDeath: reduceOnPlayerDeath,
 };
 
