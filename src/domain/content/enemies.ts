@@ -7,6 +7,13 @@ import type { EnemyDefinition } from '../model';
 
 export const ENEMIES = [
   {
+    id: 'bat',
+    name: 'Bat',
+    maxHp: 6,
+    isBoss: false,
+    intents: [{ kind: 'attack', value: 2 }],
+  },
+  {
     id: 'slime',
     name: 'Slime',
     maxHp: 8,
@@ -24,6 +31,26 @@ export const ENEMIES = [
     ],
   },
   {
+    id: 'brute',
+    name: 'Brute',
+    maxHp: 18,
+    isBoss: false,
+    intents: [
+      { kind: 'attack', value: 7 },
+      { kind: 'block', value: 5 },
+    ],
+  },
+  {
+    id: 'ogre',
+    name: 'Ogre',
+    maxHp: 26,
+    isBoss: false,
+    intents: [
+      { kind: 'attack', value: 10 },
+      { kind: 'block', value: 6 },
+    ],
+  },
+  {
     id: 'warden',
     name: 'Warden',
     maxHp: 40,
@@ -31,6 +58,17 @@ export const ENEMIES = [
     intents: [
       { kind: 'attack', value: 8 },
       { kind: 'attack', value: 12 },
+    ],
+  },
+  {
+    id: 'overlord',
+    name: 'Overlord',
+    maxHp: 60,
+    isBoss: true,
+    intents: [
+      { kind: 'attack', value: 10 },
+      { kind: 'block', value: 8 },
+      { kind: 'attack', value: 14 },
     ],
   },
 ] satisfies readonly EnemyDefinition[];
