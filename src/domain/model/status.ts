@@ -14,15 +14,17 @@
 
 /**
  * Lifetime scope of a status — the boundary at which it is cleaned up.
+ *  - `Instant`   — applied once and never stored (e.g. damage); has no presence to clean up.
  *  - `Fight`     — cleared when the combat ends (block, temp-HP, poison, strength).
  *  - `Run`       — cleared when the run ends (e.g. the run's equipped weapon).
  *  - `Life`      — cleared on death.
  *  - `Permanent` — never cleared (meta progression).
  *
- * The order Fight < Run < Life < Permanent is meaningful: ending a longer boundary
- * also clears everything shorter-lived (a run end clears Fight statuses too).
+ * The order Instant < Fight < Run < Life < Permanent is meaningful: ending a longer
+ * boundary also clears everything shorter-lived (a run end clears Fight statuses too).
  */
 export const Lifetime = {
+  Instant: 'instant',
   Fight: 'fight',
   Run: 'run',
   Life: 'life',
@@ -32,6 +34,7 @@ export type Lifetime = (typeof Lifetime)[keyof typeof Lifetime];
 
 /**
  * What a status does is encoded by its `kind`; the engine interprets known kinds.
+ *  - `Damage`     — one-time damage to the target (Instant lifetime; never stored).
  *  - `Block`      — absorbs incoming damage; reset at the start of the owner's turn.
  *  - `TempHp`     — fight-scoped bonus max HP plus a heal (lets HP exceed normal max).
  *  - `AttackUp`   — raises outgoing damage (weapon bonus, strength buff).
@@ -40,6 +43,7 @@ export type Lifetime = (typeof Lifetime)[keyof typeof Lifetime];
  *  - `WeaponTier` — upgrade marker carried by the player entity.
  */
 export const StatusKind = {
+  Damage: 'Damage',
   Block: 'Block',
   TempHp: 'TempHp',
   AttackUp: 'AttackUp',

@@ -1,22 +1,36 @@
 /**
- * Deterministic, seedable pseudo-random number generator.
+ * Deterministic, seedable randomness — the only source of randomness in the domain
+ * (we never use `Math.random()`).
  *
- * Determinism by `seed` is a core non-functional requirement (§13.1): the same
- * seed must reproduce the same level, shuffle, and loot. We therefore never use
- * `Math.random()` anywhere in the domain — all randomness flows through here.
- *
- * Implementation: `cyrb128` hashes a string seed into four 32-bit integers, the
- * first of which seeds `mulberry32`, a tiny, well-known 32-bit PRNG. Both are pure
- * integer arithmetic (`Math.imul`, bit ops), so the output is identical across
- * Node/V8 versions and safe under Babel/Metro (no platform RNG dependency).
+ * Randomness is expressed as the {@link Rand} monad: a `Rand<A>` threads an immutable
+ * {@link Seed} and yields an `A` plus the advanced seed, so a whole computation is
+ * reproducible from its starting seed and randomness composes without inventing
+ * per-call seeds. The seed is a single 32-bit integer (`mulberry32` state); `cyrb128`
+ * hashes a string into one. All integer arithmetic (`Math.imul`, bit ops), so output
+ * is identical across Node/V8 and safe under Babel/Metro.
  */
 
-/** A seeded random source. */
-export interface Rng {
-  /** Next float in [0, 1). */
-  next(): number;
-  /** Next integer in [0, maxExclusive). Returns 0 when `maxExclusive <= 0`. */
-  nextInt(maxExclusive: number): number;
+/**
+ * Immutable RNG state: a single 32-bit integer (the mulberry32 cursor), threaded by
+ * value so a randomness-consuming computation is reproducible from its starting seed.
+ */
+export type Seed = number;
+
+/**
+ * One pure mulberry32 advance: from a `Seed`, produce a float in [0, 1) and the next
+ * `Seed`. The single primitive every other randomness helper is built on.
+ */
+export function step(seed: Seed): readonly [number, Seed] {
+  const a = (seed + 0x6d2b79f5) | 0;
+  let t = Math.imul(a ^ (a >>> 15), 1 | a);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  const value = ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  return [value, a];
+}
+
+/** Derive an initial {@link Seed} from a string (cyrb128's first word). */
+export function seedFrom(seed: string): Seed {
+  return cyrb128(seed)[0];
 }
 
 /** Hash an arbitrary string seed into four 32-bit seed integers (cyrb128). */
@@ -39,43 +53,64 @@ function cyrb128(seed: string): [number, number, number, number] {
   return [(h1 ^ h2 ^ h3 ^ h4) >>> 0, (h2 ^ h1) >>> 0, (h3 ^ h1) >>> 0, (h4 ^ h1) >>> 0];
 }
 
-/** mulberry32 PRNG: 32-bit state -> float in [0, 1). */
-function mulberry32(seedState: number): () => number {
-  let a = seedState >>> 0;
-  return () => {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-/** Create a deterministic {@link Rng} from a string seed. */
-export function createRng(seed: string): Rng {
-  const [s0] = cyrb128(seed);
-  const next = mulberry32(s0);
-  return {
-    next,
-    nextInt(maxExclusive: number): number {
-      if (maxExclusive <= 0) return 0;
-      return Math.floor(next() * maxExclusive);
-    },
-  };
-}
-
 /**
- * Return a new array with the elements of `items` shuffled deterministically by
- * `seed` (Fisher–Yates). The input is never mutated.
+ * A `Rand<A>` is a deterministic computation that consumes RNG state and yields an
+ * `A` plus the advanced `Seed` — the seeded-State monad. Compose with `map`/`chain`
+ * and execute with `Rand.run(ra, seed)`.
  */
-export function shuffle<T>(items: readonly T[], seed: string): T[] {
-  const rng = createRng(seed);
-  const out = items.slice();
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = rng.nextInt(i + 1);
-    const tmp = out[i] as T;
-    out[i] = out[j] as T;
-    out[j] = tmp;
-  }
-  return out;
-}
+export type Rand<A> = (seed: Seed) => readonly [A, Seed];
+
+const randOf =
+  <A>(a: A): Rand<A> =>
+  (seed) => [a, seed];
+
+const randMap =
+  <A, B>(ra: Rand<A>, f: (a: A) => B): Rand<B> =>
+  (seed) => {
+    const [a, next] = ra(seed);
+    return [f(a), next];
+  };
+
+const randChain =
+  <A, B>(ra: Rand<A>, f: (a: A) => Rand<B>): Rand<B> =>
+  (seed) => {
+    const [a, next] = ra(seed);
+    return f(a)(next);
+  };
+
+const randRun = <A>(ra: Rand<A>, seed: Seed): readonly [A, Seed] => ra(seed);
+
+/** Next integer in [0, maxExclusive) as a `Rand`. Yields 0 when `maxExclusive <= 0`. */
+const randInt =
+  (maxExclusive: number): Rand<number> =>
+  (seed) => {
+    if (maxExclusive <= 0) return [0, seed];
+    const [value, next] = step(seed);
+    return [Math.floor(value * maxExclusive), next];
+  };
+
+/** Deterministic Fisher–Yates shuffle as a `Rand`. The input is never mutated. */
+const randShuffle =
+  <T>(items: readonly T[]): Rand<readonly T[]> =>
+  (seed) => {
+    const out = items.slice();
+    let current = seed;
+    for (let i = out.length - 1; i > 0; i--) {
+      const [j, next] = randInt(i + 1)(current);
+      current = next;
+      const tmp = out[i] as T;
+      out[i] = out[j] as T;
+      out[j] = tmp;
+    }
+    return [out, current];
+  };
+
+/** The `Rand` monad toolkit. (`Rand` is also the computation type above.) */
+export const Rand = {
+  of: randOf,
+  map: randMap,
+  chain: randChain,
+  run: randRun,
+  nextInt: randInt,
+  shuffle: randShuffle,
+} as const;

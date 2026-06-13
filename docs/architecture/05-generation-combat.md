@@ -11,7 +11,7 @@
 11. [Процедурная генерация уровня](#11-процедурная-генерация-уровня)
 12. [Боевая система](#12-боевая-система)
 
-Две ключевые алгоритмические подсистемы. Обе детерминированы по `seed` и реализованы как чистый TypeScript (`LevelGenerator`, `CombatEngine` — см. [архитектуру классов §5](02-architecture.md#5-архитектура-классов)). Структуры данных — в главе [«Модель данных»](03-data-model.md).
+Две ключевые алгоритмические подсистемы. Обе детерминированы по `seed` и реализованы как чистый TypeScript (`LevelGenerator`, `combatReducer` — см. [архитектуру домена §5](02-architecture.md#5-архитектура-домена)). Структуры данных — в главе [«Модель данных»](03-data-model.md).
 
 ---
 
@@ -57,58 +57,54 @@ export interface GenerationParams {
 
 ## 12. Боевая система
 
-Полный игровой цикл боя описан в [§8.2](04-gameplay.md#82-главный-цикл-боя-combat-loop); здесь — последовательность взаимодействий сервисов и формулы.
+Полный игровой цикл боя описан в [§8.2](04-gameplay.md#82-главный-цикл-боя-combat-loop); здесь — поток действий через редьюсер и формулы. Действия — это **данные** (`CombatAction`), а `combatReducer(deps, state, action)` — чистая функция, диспетчеризуемая по типизированной таблице; отдельного сервис-класса движка нет.
 
 ### 12.1. Структура хода
 
 ```mermaid
 sequenceDiagram
     participant U as Игрок
-    participant S as GameStore
-    participant E as CombatEngine
+    participant S as Store
+    participant R as combatReducer
     participant D as DeckManager
-    participant R as CardResolver
 
-    U->>S: playCard(instanceId, target)
-    S->>E: playCard(state, card, target)
-    E->>R: applyEffects(state, card, target)
-    R-->>E: новое CombatState
-    E->>D: discard/exhaust(card)
-    D-->>E: обновлённые стопки
-    E->>E: checkOutcome(state)
-    E-->>S: CombatState
+    U->>S: dispatch(PlayCard{instanceId, source, targets})
+    S->>R: combatReducer(deps, state, action)
+    R->>R: оплата энергии (cost из CardDefinition)
+    R->>R: applyCard(state, def, source, targets)
+    R->>D: discard | exhaust (по CardType)
+    R->>R: withOutcome (checkOutcome)
+    R-->>S: новый CombatState
     S-->>U: ререндер (Skia)
 
-    U->>S: endTurn()
-    S->>E: endPlayerTurn(state)
-    E->>E: runEnemyTurn (исполнить intents)
-    E->>D: draw до handSize
-    E-->>S: CombatState (новый ход)
+    U->>S: dispatch(EndTurn)
+    S->>R: combatReducer(deps, state, EndTurn)
+    R->>R: runEnemyIntents → tick → clearBlock → draw(Rand)
+    R-->>S: CombatState (новый ход)
     S-->>U: ререндер
 ```
 
 ### 12.2. Формулы (единая точка в `RuleSet`)
 
-Урон, блок и временное HP берутся из `Effect.value` соответствующего `EffectKind` карты (см. [§7.1](03-data-model.md#71-карты)), а не из отдельного поля.
+Урон — это разовый статус (`ApplyStatus`, `status: 'Damage'`, `lifetime: 'instant'`); его величина берётся из `Effect.value`. Все боевые модификаторы — это **статусы на сущности**, поэтому атака и блок выводятся из её статусов (нет аргументов `weaponBonus`/`statusModifier`): оружие и усиление — это `AttackUp`, щит — `Block`, «+сердце» и временное HP — `MaxHpUp`/`TempHp`.
 
 ```typescript
-// Урон атакующей карты (effect.kind == DealDamage)
+// Урон: источник «производит» op, цель «получает» его (Block поглощает)
 damage = effect.value                       // базовое значение эффекта
-       + weapon.attackBonus
-       + statusModifiers(player.statuses)    // напр. усиление
-       - target.block;                       // блок поглощает урон
+       + attackPower(source)                // Σ статусов AttackUp (оружие + усиление)
+       - block(target);                      // Σ статусов Block; RuleSet.damageFormula клампит в 0
 
-// Максимальное HP игрока
-maxHp = player.baseMaxHp
-      + armor.maxHpBonus
-      + specialCardsBonus;                   // карты «+сердце»
+// Максимальное HP сущности (выводится из статусов)
+maxHp = entity.baseMaxHp
+      + Σ MaxHpUp.stacks                     // «+сердце»
+      + Σ TempHp.stacks;                     // временное HP (lifetime: fight)
 
-// Эффективный блок врага сбрасывается в начале его хода
+// Block сбрасывается в начале хода владельца (clearBlock)
 ```
 
 ### 12.3. Поведение врагов
 
-Враги действуют по предопределённому паттерну `intents` (см. [`EnemyDefinition` §7.5](03-data-model.md#75-враги-и-бой)), который игрок видит заранее — это снижает RNG-фрустрацию и делает бой тактическим. Текущее намерение врага хранится в `EnemyInstance.currentIntentIndex` и циклически продвигается каждый ход врага.
+Враги действуют по предопределённому паттерну `intents` (см. [`EnemyDefinition` §7.5](03-data-model.md#75-враги-и-бой)), который игрок видит заранее — это снижает RNG-фрустрацию и делает бой тактическим. Текущее намерение хранится в `EnemyInstance.currentIntentIndex` и циклически продвигается каждый ход врага. Интенты исполняет редьюсер в действии `EndTurn` (`runEnemyIntents`), **без RNG**; индекс продвигается по модулю длины `intents`. «Атака» врага использует те же op-ы сущностей (`dealDamage`), что и карта игрока, — единый путь кода.
 
 ---
 

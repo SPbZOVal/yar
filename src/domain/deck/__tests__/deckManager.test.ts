@@ -7,7 +7,6 @@ import {
   exhaust,
   reshuffleDiscardIntoDraw,
   resetPermanentDeck,
-  shuffleDeck,
 } from '../deckManager';
 
 // --- Test helpers ------------------------------------------------------------
@@ -35,6 +34,7 @@ function state(
     energy: 3,
     turn: 1,
     phase: CombatPhase.PlayerTurn,
+    rng: 0,
   };
 }
 
@@ -55,21 +55,6 @@ function makeDef(type: CardType): CardDefinition {
 }
 
 // --- Tests -------------------------------------------------------------------
-
-describe('shuffleDeck', () => {
-  it('is deterministic for a given seed and differs across seeds', () => {
-    const deck = cards('a', 'b', 'c', 'd', 'e', 'f');
-    expect(ids(shuffleDeck(deck, 's1'))).toEqual(ids(shuffleDeck(deck, 's1')));
-    expect(ids(shuffleDeck(deck, 's1'))).not.toEqual(ids(shuffleDeck(deck, 's2')));
-  });
-
-  it('returns a permutation without mutating the input', () => {
-    const deck = cards('a', 'b', 'c');
-    const out = shuffleDeck(deck, 's');
-    expect(ids(out).sort()).toEqual(['a', 'b', 'c']);
-    expect(ids(deck)).toEqual(['a', 'b', 'c']);
-  });
-});
 
 describe('draw', () => {
   it('moves the top N cards from draw pile to hand, preserving order', () => {
@@ -149,7 +134,7 @@ describe('discard / exhaust', () => {
 describe('reshuffleDiscardIntoDraw', () => {
   it('places the reshuffled discard beneath the remaining draw pile', () => {
     const s = state({ drawPile: cards('top'), discardPile: cards('x', 'y', 'z') });
-    const next = reshuffleDiscardIntoDraw(s, 'fixed-seed');
+    const next = reshuffleDiscardIntoDraw(s);
     expect(next.drawPile[0]?.instanceId).toBe('top');
     expect(ids(next.drawPile).slice(1).sort()).toEqual(['x', 'y', 'z']);
     expect(next.discardPile).toHaveLength(0);
@@ -193,7 +178,6 @@ describe('resetPermanentDeck', () => {
 
 describe('DeckManager aggregate', () => {
   it('exposes the documented API surface', () => {
-    expect(typeof DeckManager.shuffle).toBe('function');
     expect(typeof DeckManager.draw).toBe('function');
     expect(typeof DeckManager.discard).toBe('function');
     expect(typeof DeckManager.exhaust).toBe('function');
