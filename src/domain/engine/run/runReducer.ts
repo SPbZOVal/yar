@@ -1,27 +1,44 @@
 /**
- * Run reducer — SKETCH.
+ * Run reducer — actions are data, a typed table dispatches to pure
+ * `(deps, state, action) -> state` reducers (same shape as combat).
  *
- * The run-level flow has the same shape as combat: actions are data, a typed table
- * dispatches to pure `(deps, state, action) -> state` reducers. This is a skeleton that
- * proves the pattern at run altitude; the parts that need still-unbuilt systems
- * (LevelGenerator, LootSystem, the Collection) are documented stubs:
- *  - `EnterNode` will delegate combat/boss nodes to `combatReducer`, deriving the combat
- *    seed from the run seed (`seedFrom(`${state.seed}:combat:${nodeId}`)`).
- *  - `CollectLoot` will route permanents/equipment to the Collection (meta); for now it
- *    only fills the level's single-use bag.
+ * `GenerateLevel` builds a fresh {@link LevelGraph} from the run seed (deterministic per
+ * `levelIndex`). `EnterNode` walks that graph: it validates the move is along an edge from
+ * the current node, marks the target visited, advances `currentNodeId`, and picks the
+ * screen by node type. Two integrations are still deferred to a follow-up PR (they need a
+ * `RunState.collection` model change):
+ *  - combat/boss nodes will build a `StartCombat` action from the run deck + node enemies
+ *    (combat seed `seedFrom(`${state.seed}:combat:${nodeId}`)`) and store the `CombatState`;
+ *    for now they only navigate to the combat screen.
+ *  - `CollectLoot` will route permanents/equipment to the Collection; for now it only fills
+ *    the level's single-use bag.
  */
-import type { LootReward, PlayerState, RunState, ScreenState } from '../../model';
+import { seedFrom } from '../../rng/rng';
+import type { Seed } from '../../rng/rng';
+import type {
+  GenerationParams,
+  LevelGraph,
+  LevelNode,
+  LootReward,
+  PlayerState,
+  RunState,
+  ScreenState,
+} from '../../model';
 
 export type RunAction =
   | { readonly type: 'StartRun'; readonly seed: string; readonly player: PlayerState }
   | { readonly type: 'BuildDeck'; readonly cardInstanceIds: readonly string[] }
+  | { readonly type: 'GenerateLevel' }
   | { readonly type: 'EnterNode'; readonly nodeId: string }
   | { readonly type: 'CollectLoot'; readonly reward: LootReward }
   | { readonly type: 'OnPlayerDeath' };
 
-/** Config the run reducer needs (extended as generation/loot/persistence land). */
+/** Config the run reducer needs (extended as combat delegation/persistence land). */
 export interface RunDeps {
   readonly maxDeckSize: number;
+  readonly generationParams: GenerationParams;
+  /** Level generator with its content deps pre-bound (see `defaultLevelGenDeps`). */
+  readonly generateLevel: (params: GenerationParams, seed: Seed) => LevelGraph;
 }
 
 const DECK_BUILDING: ScreenState = { name: 'deckBuilding' };
@@ -52,13 +69,45 @@ function reduceBuildDeck(
   return { ...state, runDeck: { ...state.runDeck, cardInstanceIds } };
 }
 
+function reduceGenerateLevel(deps: RunDeps, state: RunState): RunState {
+  const levelSeed = seedFrom(`${state.seed}:level:${state.levelIndex}`);
+  const level = deps.generateLevel(deps.generationParams, levelSeed);
+  return { ...state, currentLevel: level, screen: { name: 'level' } };
+}
+
+/** Which screen a node routes to. Combat/boss navigate only here; combat starts in PR2. */
+function screenForNode(node: LevelNode): ScreenState {
+  switch (node.content?.kind) {
+    case 'combat':
+    case 'boss':
+      return { name: 'combat' };
+    case 'loot':
+      return { name: 'loot' };
+    case 'question':
+      return { name: 'question' };
+    default:
+      return { name: `node:${node.id}` };
+  }
+}
+
 function reduceEnterNode(
   _deps: RunDeps,
   state: RunState,
   action: Extract<RunAction, { type: 'EnterNode' }>,
 ): RunState {
-  // SKETCH: combat/boss nodes will delegate to combatReducer with a run-derived seed.
-  return { ...state, screen: { name: `node:${action.nodeId}` } };
+  const level = state.currentLevel;
+  if (level === null) return state;
+  // Only a node adjacent to the current one (along a forward edge) may be entered.
+  const legal = level.edges.some((e) => e.from === level.currentNodeId && e.to === action.nodeId);
+  if (!legal) return state;
+  const target = level.nodes.get(action.nodeId);
+  if (target === undefined) return state;
+
+  const nodes = new Map(level.nodes);
+  nodes.set(action.nodeId, { ...target, visited: true });
+  const currentLevel: LevelGraph = { ...level, nodes, currentNodeId: action.nodeId };
+  // PR2: combat/boss nodes will also build a StartCombat and set `combat` here.
+  return { ...state, currentLevel, screen: screenForNode(target) };
 }
 
 function reduceCollectLoot(
@@ -95,6 +144,7 @@ type RunReducerTable = {
 const TABLE: RunReducerTable = {
   StartRun: reduceStartRun,
   BuildDeck: reduceBuildDeck,
+  GenerateLevel: reduceGenerateLevel,
   EnterNode: reduceEnterNode,
   CollectLoot: reduceCollectLoot,
   OnPlayerDeath: reduceOnPlayerDeath,

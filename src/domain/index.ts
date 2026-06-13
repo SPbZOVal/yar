@@ -14,6 +14,8 @@ export {
   damageFormula,
   maxHpFormula,
   GENERATION_PARAMS,
+  LOOT_PARAMS,
+  LEVEL_PARAMS,
   BALANCE_CONSTANTS,
 } from './ruleset/ruleset';
 export {
@@ -50,6 +52,7 @@ export { CARD_DEFS, getCardDef } from './registry/cardRegistry';
 export { ENEMY_DEFS, getEnemyDef } from './registry/enemyRegistry';
 export { CARDS } from './content/cards';
 export { ENEMIES } from './content/enemies';
+export { QUESTIONS } from './content/questions';
 export { combatReducer, checkOutcome, withOutcome, runEnemyIntents } from './engine/combat';
 export type {
   CombatDeps,
@@ -60,3 +63,13 @@ export type {
 } from './engine/combat';
 export { runReducer } from './engine/run';
 export type { RunAction, RunDeps } from './engine/run';
+export { generateLevel, validate, defaultLevelGenDeps } from './engine/level';
+export type { LevelGenDeps } from './engine/level';
+export {
+  rollChestLoot,
+  rollBossLoot,
+  rollQuestion,
+  defaultLootDeps,
+  defaultQuestionDeps,
+} from './engine/loot';
+export type { LootDeps, QuestionDeps, QuestionTemplate } from './engine/loot';

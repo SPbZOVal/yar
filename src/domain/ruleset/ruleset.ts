@@ -7,7 +7,7 @@
  * pass already-resolved numbers (the weapon bonus, the summed status modifier),
  * not domain objects.
  */
-import type { GenerationParams } from '../model';
+import type { GenerationParams, Rarity } from '../model';
 
 /**
  * Damage dealt by an attacking effect (§12.2):
@@ -49,6 +49,29 @@ export const GENERATION_PARAMS: GenerationParams = {
   difficultyScaling: 1.2,
 };
 
+/**
+ * Loot-roll tuning (§7.6, §10.2). Rarity weights drive the cumulative weighted pick in
+ * the LootSystem; chests roll on `rarityWeights` (Boss-rarity weight 0, so chests never
+ * yield Boss cards), the end boss rolls on `bossRarityWeights` (Rare/Boss-heavy).
+ * `equipmentDropChance` is 0 for now — loot is cards-only until a weapon/armor pool lands.
+ */
+export const LOOT_PARAMS: {
+  readonly rarityWeights: Record<Rarity, number>;
+  readonly bossRarityWeights: Record<Rarity, number>;
+  readonly equipmentDropChance: number;
+} = {
+  rarityWeights: { Common: 60, Uncommon: 30, Rare: 10, Boss: 0 },
+  bossRarityWeights: { Common: 0, Uncommon: 20, Rare: 50, Boss: 30 },
+  equipmentDropChance: 0,
+};
+
+/**
+ * Level-generation tuning the algorithm needs beyond {@link GenerationParams}:
+ * `maxRetries` bounds the validate-or-regenerate loop, `maxEnemiesPerNode` caps how many
+ * enemies difficulty scaling can stack onto one combat node.
+ */
+export const LEVEL_PARAMS = { maxRetries: 8, maxEnemiesPerNode: 3 } as const;
+
 /** Core balance constants. Placeholder values, tuned later. */
 export const BALANCE_CONSTANTS = {
   /** Cards drawn at the start of each turn by default. */
@@ -66,5 +89,7 @@ export const RuleSet = {
   damageFormula,
   maxHpFormula,
   GENERATION_PARAMS,
+  LOOT_PARAMS,
+  LEVEL_PARAMS,
   BALANCE_CONSTANTS,
 } as const;
