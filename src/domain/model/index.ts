@@ -10,18 +10,13 @@ export {
   NodeType,
   CombatPhase,
 } from './enums';
+export { Lifetime, StatusKind } from './status';
 
 export type { Effect, CardDefinition, CardInstance } from './cards';
+export type { Status } from './status';
 export type { Weapon, Armor, PlayerState } from './player';
 export type { Collection, RunDeck } from './collection';
-export type {
-  StatusEffect,
-  Combatant,
-  EnemyIntent,
-  EnemyDefinition,
-  EnemyInstance,
-  CombatState,
-} from './combat';
+export type { Entity, EnemyIntent, EnemyDefinition, EnemyInstance, CombatState } from './combat';
 export type {
   LootReward,
   QuestionData,
