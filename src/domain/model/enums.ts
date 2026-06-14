@@ -51,10 +51,19 @@ export const TargetType = {
 } as const;
 export type TargetType = (typeof TargetType)[keyof typeof TargetType];
 
-/** Deck-level operation for a `DeckManipulation` effect. */
+/**
+ * Deck-level operation for a `DeckManipulation` effect.
+ *  - `Draw`      — draw `value` cards (reshuffles the discard in when the draw pile empties);
+ *  - `Reshuffle` — shuffle the discard back onto the draw pile;
+ *  - `Drop`      — mill: move the top `value` cards of the draw pile to the discard;
+ *  - `Pick`      — take the top `value` cards into hand WITHOUT reshuffling (the value-only
+ *                  "pick what's on top" variant; true card selection needs an action seam).
+ */
 export const DeckOp = {
   Draw: 'Draw',
   Reshuffle: 'Reshuffle',
+  Drop: 'Drop',
+  Pick: 'Pick',
 } as const;
 export type DeckOp = (typeof DeckOp)[keyof typeof DeckOp];
 

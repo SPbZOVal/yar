@@ -80,6 +80,35 @@ export function exhaust(state: CombatState, card: CardInstance): CombatState {
 }
 
 /**
+ * Mill: move the top `n` cards of the `drawPile` to the `discardPile`. Stops early if the
+ * draw pile empties (never reshuffles). No-op for non-positive `n` or an empty draw pile.
+ */
+export function drop(state: CombatState, n: number): CombatState {
+  const moved = state.drawPile.slice(0, Math.max(0, n));
+  if (moved.length === 0) return state;
+  return {
+    ...state,
+    drawPile: state.drawPile.slice(moved.length),
+    discardPile: [...state.discardPile, ...moved],
+  };
+}
+
+/**
+ * Pick: take the top `n` cards of the `drawPile` straight into the `hand` WITHOUT
+ * reshuffling the discard — only what is currently on top. No-op for non-positive `n` or
+ * an empty draw pile. (Selecting an arbitrary card needs an action-level `instanceId` seam.)
+ */
+export function pick(state: CombatState, n: number): CombatState {
+  const taken = state.drawPile.slice(0, Math.max(0, n));
+  if (taken.length === 0) return state;
+  return {
+    ...state,
+    drawPile: state.drawPile.slice(taken.length),
+    hand: [...state.hand, ...taken],
+  };
+}
+
+/**
  * Rebuild the deck for the next combat: only Permanent cards are restored; SingleUse
  * cards are dropped (they live only within a single combat). `getDef` resolves a card's
  * definition, since `CardType` lives on `CardDefinition`, not on `CardInstance`.
@@ -96,6 +125,8 @@ export const DeckManager = {
   draw,
   discard,
   exhaust,
+  drop,
+  pick,
   reshuffleDiscardIntoDraw,
   resetPermanentDeck,
 } as const;

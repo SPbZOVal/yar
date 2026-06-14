@@ -7,7 +7,7 @@
  */
 import { DeckOp } from '../model';
 import type { CombatState } from '../model';
-import { draw, reshuffleDiscardIntoDraw } from '../deck/deckManager';
+import { draw, drop, pick, reshuffleDiscardIntoDraw } from '../deck/deckManager';
 
 /** Applies a deck op carrying its magnitude (`value`, e.g. cards to draw). */
 export type DeckOpHandler = (state: CombatState, value: number) => CombatState;
@@ -15,6 +15,8 @@ export type DeckOpHandler = (state: CombatState, value: number) => CombatState;
 export const DECK_OP_HANDLERS: Record<DeckOp, DeckOpHandler> = {
   [DeckOp.Draw]: (state, value) => draw(state, value),
   [DeckOp.Reshuffle]: (state) => reshuffleDiscardIntoDraw(state),
+  [DeckOp.Drop]: (state, value) => drop(state, value),
+  [DeckOp.Pick]: (state, value) => pick(state, value),
 };
 
 /** Look up a deck op's handler. (Keyed by the exact union, so never undefined.) */

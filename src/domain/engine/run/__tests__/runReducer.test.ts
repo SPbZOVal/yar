@@ -1,4 +1,4 @@
-import { CardType, CombatPhase, NodeType } from '../../../model';
+import { CardType, CombatPhase, Lifetime, NodeType, StatusKind } from '../../../model';
 import type {
   Armor,
   CardDefinition,
@@ -14,6 +14,8 @@ import type {
   Weapon,
 } from '../../../model';
 import { GENERATION_PARAMS } from '../../../ruleset/ruleset';
+import { STARTER_DECK } from '../../../content/starterDeck';
+import { attackPower, maxHp } from '../../../entity/entity';
 import { defaultLevelGenDeps, generateLevel } from '../../level';
 import { defaultRunDeps } from '..';
 import { runReducer } from '../runReducer';
@@ -74,11 +76,28 @@ const fakeStartCombat: RunDeps['startCombat'] = (p, enemies, deck, seed) => ({
   rng: seed,
 });
 
+// Deterministic fake loot rollers: a chest yields one permanent, a boss yields one
+// permanent whose id distinguishes the end boss; both advance the seed.
+const fakeChestLoot: RunDeps['rollChestLoot'] = (seed) => [
+  { cards: [cardDef('chest-card', CardType.Permanent)], isSpecial: false },
+  (seed + 1) | 0,
+];
+const fakeBossLoot: RunDeps['rollBossLoot'] = (seed, isEndBoss) => [
+  {
+    cards: [cardDef(isEndBoss ? 'boss-special' : 'boss-card', CardType.Permanent)],
+    isSpecial: isEndBoss,
+  },
+  (seed + 1) | 0,
+];
+
 const deps: RunDeps = {
   maxDeckSize: 3,
   generationParams: GENERATION_PARAMS,
+  starterCards: [],
   generateLevel: (params, seed) => generateLevel(params, defaultLevelGenDeps(), seed),
   startCombat: fakeStartCombat,
+  rollChestLoot: fakeChestLoot,
+  rollBossLoot: fakeBossLoot,
 };
 
 function runState(overrides: Partial<RunState> = {}): RunState {
@@ -189,23 +208,45 @@ function level(currentNodeId = 'L0N0'): LevelGraph {
 }
 
 describe('StartRun', () => {
-  it('initializes a fresh, ephemeral run with an empty collection', () => {
+  it('initializes a fresh, ephemeral run (empty collection when no starter deck)', () => {
     const action: RunAction = { type: 'StartRun', seed: 's', player: player() };
     const s = runReducer(deps, runState(), action);
     expect(s.seed).toBe('s');
     expect(s.combat).toBeNull();
     expect(s.currentLevel).toBeNull();
     expect(s.runDeck.maxDeckSize).toBe(3);
+    expect(s.runDeck.cardInstanceIds).toEqual([]);
     expect(s.singleUseBag).toEqual([]);
     expect(s.collection.ownedCards).toEqual([]);
+  });
+
+  it('seeds the collection from the deps starter deck with deterministic ids', () => {
+    const withStarter: RunDeps = { ...deps, starterCards: ['strike', 'strike', 'defend'] };
+    const s = runReducer(withStarter, runState(), {
+      type: 'StartRun',
+      seed: 's',
+      player: player(),
+    });
+    expect(s.collection.ownedCards).toEqual([
+      { instanceId: 'strike#0', defId: 'strike', upgraded: false },
+      { instanceId: 'strike#1', defId: 'strike', upgraded: false },
+      { instanceId: 'defend#2', defId: 'defend', upgraded: false },
+    ]);
+    expect(s.runDeck.cardInstanceIds).toEqual([]); // starter lands in the collection, not the deck
   });
 });
 
 describe('BuildDeck', () => {
-  it('sets the run deck, capped at maxDeckSize', () => {
-    const action: RunAction = { type: 'BuildDeck', cardInstanceIds: ['a', 'b', 'c', 'd'] };
-    const s = runReducer(deps, runState(), action);
+  it('sets the run deck from owned ids, capped at maxDeckSize', () => {
+    const st = runState({ collection: collection([inst('a'), inst('b'), inst('c'), inst('d')]) });
+    const s = runReducer(deps, st, { type: 'BuildDeck', cardInstanceIds: ['a', 'b', 'c', 'd'] });
     expect(s.runDeck.cardInstanceIds).toEqual(['a', 'b', 'c']); // capped at 3
+  });
+
+  it('drops ids the collection does not own', () => {
+    const st = runState({ collection: collection([inst('a'), inst('b')]) });
+    const s = runReducer(deps, st, { type: 'BuildDeck', cardInstanceIds: ['a', 'missing', 'b'] });
+    expect(s.runDeck.cardInstanceIds).toEqual(['a', 'b']);
   });
 });
 
@@ -273,6 +314,22 @@ describe('EnterNode', () => {
     expect(s.combat?.enemies).toHaveLength(1); // one enemy on the node
     expect(s.combat?.drawPile).toHaveLength(2); // unknown 'missing' id dropped
     expect(s.currentLevel?.nodes.get('L1N1')?.visited).toBe(true);
+  });
+
+  it('feeds the single-use bag into the combat deck alongside the run deck', () => {
+    const st = runState({
+      currentLevel: level('L0N0'),
+      collection: collection([inst('a')]),
+      runDeck: { cardInstanceIds: ['a'], maxDeckSize: 3 },
+      singleUseBag: ['ember', 'frost'],
+    });
+    const s = runReducer(deps, st, { type: 'EnterNode', nodeId: 'L1N1' });
+    // fakeStartCombat echoes the resolved deck into the draw pile: run deck + bag instances.
+    expect(s.combat?.drawPile).toEqual([
+      inst('a'),
+      { instanceId: 'bag:ember#0', defId: 'ember', upgraded: false },
+      { instanceId: 'bag:frost#1', defId: 'frost', upgraded: false },
+    ]);
   });
 
   it('starts combat on a boss node using the boss as the single enemy', () => {
@@ -371,6 +428,37 @@ describe('ResolveCombat', () => {
     expect(s.screen.name).toBe('level');
   });
 
+  it('on victory at a combat node rolls chest loot into the collection', () => {
+    const won = combatState({
+      player: { hp: 22, baseMaxHp: 50, statuses: [] },
+      enemies: [
+        { entity: { hp: 0, baseMaxHp: 10, statuses: [] }, defId: 'rat', currentIntentIndex: 0 },
+      ],
+    });
+    const st = runState({ currentLevel: level('L1N1'), combat: won });
+    const s = runReducer(deps, st, { type: 'ResolveCombat' });
+    expect(s.player.currentHp).toBe(22);
+    expect(s.combat).toBeNull();
+    expect(s.screen.name).toBe('level');
+    expect(s.collection.ownedCards).toEqual([
+      { instanceId: 'chest-card#0', defId: 'chest-card', upgraded: false },
+    ]);
+  });
+
+  it('on victory at a boss node rolls boss loot (special at the end boss)', () => {
+    const won = combatState({
+      player: { hp: 30, baseMaxHp: 50, statuses: [] },
+      enemies: [
+        { entity: { hp: 0, baseMaxHp: 40, statuses: [] }, defId: 'warden', currentIntentIndex: 0 },
+      ],
+    });
+    const st = runState({ currentLevel: level('L2N0'), combat: won });
+    const s = runReducer(deps, st, { type: 'ResolveCombat' });
+    expect(s.collection.ownedCards).toEqual([
+      { instanceId: 'boss-special#0', defId: 'boss-special', upgraded: false },
+    ]);
+  });
+
   it('on defeat restarts the run', () => {
     const lost = combatState({ player: { hp: 0, baseMaxHp: 50, statuses: [] } });
     const st = runState({ player: player(0), levelIndex: 2, singleUseBag: ['x'], combat: lost });
@@ -417,5 +505,49 @@ describe('defaultRunDeps', () => {
     // All 3 deck cards conserved across hand + draw pile after the opening draw.
     expect((s.combat?.hand.length ?? 0) + (s.combat?.drawPile.length ?? 0)).toBe(3);
     expect(s.combat?.player.baseMaxHp).toBe(50); // projected from player.baseMaxHp, not maxHp
+  });
+
+  it('projects equipment + meta bonuses into combat as statuses', () => {
+    const geared: PlayerState = {
+      baseMaxHp: 50,
+      currentHp: 55,
+      maxHp: 60, // +10 from armor / "+heart" specials
+      handSize: 5,
+      energyPerTurn: 3,
+      weapon: { id: 'sword', name: 'Sword', attackBonus: 3, tier: 1 },
+      armor: { id: 'plate', name: 'Plate', maxHpBonus: 10, blockBonus: 0, tier: 1 },
+    };
+    const st = runState({
+      player: geared,
+      currentLevel: level('L0N0'),
+      collection: collection([inst('a')]),
+      runDeck: { cardInstanceIds: ['a'], maxDeckSize: 3 },
+    });
+    const s = runReducer(defaultRunDeps(), st, { type: 'EnterNode', nodeId: 'L1N1' });
+    const combatPlayer = s.combat?.player;
+    expect(combatPlayer?.baseMaxHp).toBe(50); // base, not the inflated max
+    expect(combatPlayer?.statuses).toEqual(
+      expect.arrayContaining([
+        { kind: StatusKind.MaxHpUp, stacks: 10, lifetime: Lifetime.Run },
+        { kind: StatusKind.AttackUp, stacks: 3, lifetime: Lifetime.Run },
+      ]),
+    );
+    // Derived stats reconstitute the player's totals: maxHp == player.maxHp, attack == weapon.
+    expect(combatPlayer && maxHp(combatPlayer)).toBe(60);
+    expect(combatPlayer && attackPower(combatPlayer)).toBe(3);
+  });
+
+  it('drives the real loop: StartRun seeds the starter, BuildDeck selects, GenerateLevel runs', () => {
+    const real = defaultRunDeps();
+    const started = runReducer(real, runState(), { type: 'StartRun', seed: 'x', player: player() });
+    expect(started.collection.ownedCards).toHaveLength(STARTER_DECK.length);
+
+    const chosen = started.collection.ownedCards.slice(0, 3).map((c) => c.instanceId);
+    const built = runReducer(real, started, { type: 'BuildDeck', cardInstanceIds: chosen });
+    expect(built.runDeck.cardInstanceIds).toEqual(chosen);
+
+    const leveled = runReducer(real, built, { type: 'GenerateLevel' });
+    expect(leveled.currentLevel).not.toBeNull();
+    expect(leveled.screen.name).toBe('level');
   });
 });

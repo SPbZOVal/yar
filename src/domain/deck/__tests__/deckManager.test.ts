@@ -4,7 +4,9 @@ import {
   DeckManager,
   discard,
   draw,
+  drop,
   exhaust,
+  pick,
   reshuffleDiscardIntoDraw,
   resetPermanentDeck,
 } from '../deckManager';
@@ -87,6 +89,53 @@ describe('draw', () => {
     const next = draw(s, 5);
     expect(ids(next.hand)).toEqual(['a', 'b']);
     expect(next.drawPile).toHaveLength(0);
+  });
+});
+
+describe('drop (mill)', () => {
+  it('moves the top N cards from the draw pile to the discard pile, preserving order', () => {
+    const s = state({ drawPile: cards('a', 'b', 'c', 'd'), discardPile: cards('x') });
+    const next = drop(s, 2);
+    expect(ids(next.drawPile)).toEqual(['c', 'd']);
+    expect(ids(next.discardPile)).toEqual(['x', 'a', 'b']);
+    expect(next.hand).toHaveLength(0);
+  });
+
+  it('never reshuffles: stops at the bottom of the draw pile', () => {
+    const s = state({ drawPile: cards('a', 'b'), discardPile: cards('x') });
+    const next = drop(s, 5);
+    expect(ids(next.drawPile)).toEqual([]);
+    expect(ids(next.discardPile)).toEqual(['x', 'a', 'b']);
+  });
+
+  it('is a no-op for a non-positive count or an empty draw pile', () => {
+    const s = state({ drawPile: cards('a') });
+    expect(drop(s, 0)).toBe(s);
+    expect(drop(state({ discardPile: cards('x') }), 2).drawPile).toHaveLength(0);
+  });
+});
+
+describe('pick (top-of-draw, no reshuffle)', () => {
+  it('takes the top N cards straight into hand without touching the discard', () => {
+    const s = state({ drawPile: cards('a', 'b', 'c'), hand: cards('h'), discardPile: cards('x') });
+    const next = pick(s, 2);
+    expect(ids(next.hand)).toEqual(['h', 'a', 'b']);
+    expect(ids(next.drawPile)).toEqual(['c']);
+    expect(ids(next.discardPile)).toEqual(['x']); // never reshuffled
+  });
+
+  it('stops at the bottom of the draw pile and never reshuffles', () => {
+    const s = state({ drawPile: cards('a'), discardPile: cards('x', 'y') });
+    const next = pick(s, 3);
+    expect(ids(next.hand)).toEqual(['a']);
+    expect(next.drawPile).toHaveLength(0);
+    expect(ids(next.discardPile)).toEqual(['x', 'y']);
+  });
+
+  it('is a no-op for a non-positive count or an empty draw pile', () => {
+    const s = state({ drawPile: cards('a') });
+    expect(pick(s, 0)).toBe(s);
+    expect(pick(state({ discardPile: cards('x') }), 2)).toEqual(state({ discardPile: cards('x') }));
   });
 });
 
@@ -181,6 +230,8 @@ describe('DeckManager aggregate', () => {
     expect(typeof DeckManager.draw).toBe('function');
     expect(typeof DeckManager.discard).toBe('function');
     expect(typeof DeckManager.exhaust).toBe('function');
+    expect(typeof DeckManager.drop).toBe('function');
+    expect(typeof DeckManager.pick).toBe('function');
     expect(typeof DeckManager.reshuffleDiscardIntoDraw).toBe('function');
     expect(typeof DeckManager.resetPermanentDeck).toBe('function');
   });
