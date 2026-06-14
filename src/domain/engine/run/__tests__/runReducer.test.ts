@@ -17,7 +17,7 @@ import { GENERATION_PARAMS } from '../../../ruleset/ruleset';
 import { STARTER_DECK } from '../../../content/starterDeck';
 import { attackPower, maxHp } from '../../../entity/entity';
 import { defaultLevelGenDeps, generateLevel } from '../../level';
-import { defaultRunDeps } from '..';
+import { defaultPlayer, defaultRunDeps } from '..';
 import { runReducer } from '../runReducer';
 import type { RunAction, RunDeps } from '../runReducer';
 
@@ -177,7 +177,10 @@ function level(currentNodeId = 'L0N0'): LevelGraph {
             text: '?',
             options: ['a', 'b'],
             correctIndex: 0,
-            rewardOnCorrect: { cards: [], isSpecial: false },
+            rewardOnCorrect: {
+              cards: [cardDef('quiz-prize', CardType.Permanent)],
+              isSpecial: false,
+            },
           },
         },
         visited: false,
@@ -247,6 +250,46 @@ describe('BuildDeck', () => {
     const st = runState({ collection: collection([inst('a'), inst('b')]) });
     const s = runReducer(deps, st, { type: 'BuildDeck', cardInstanceIds: ['a', 'missing', 'b'] });
     expect(s.runDeck.cardInstanceIds).toEqual(['a', 'b']);
+  });
+});
+
+const sword: Weapon = { id: 'sword', name: 'Sword', attackBonus: 4, tier: 2 };
+const plate: Armor = { id: 'plate', name: 'Plate', maxHpBonus: 10, blockBonus: 3, tier: 2 };
+const owning = (overrides: Partial<Collection> = {}): Collection => ({
+  ownedCards: [],
+  ownedWeapons: [],
+  ownedArmor: [],
+  ...overrides,
+});
+
+describe('EquipWeapon / EquipArmor', () => {
+  it('equips an owned weapon', () => {
+    const st = runState({ collection: owning({ ownedWeapons: [sword] }) });
+    const s = runReducer(deps, st, { type: 'EquipWeapon', weaponId: 'sword' });
+    expect(s.player.weapon).toEqual(sword);
+  });
+
+  it('is a no-op when the weapon is not owned', () => {
+    const st = runState();
+    expect(runReducer(deps, st, { type: 'EquipWeapon', weaponId: 'ghost' })).toBe(st);
+  });
+
+  it('equips armor, recomputing maxHp and preserving the special (+heart) bonus', () => {
+    // player with a +5 special bonus (maxHp 55, base 50, rags armor maxHpBonus 0).
+    const hearted = { ...player(), maxHp: 55 };
+    const st = runState({ player: hearted, collection: owning({ ownedArmor: [plate] }) });
+    const s = runReducer(deps, st, { type: 'EquipArmor', armorId: 'plate' });
+    expect(s.player.armor).toEqual(plate);
+    expect(s.player.maxHp).toBe(65); // 50 base + 10 armor + 5 special
+    expect(s.player.currentHp).toBe(50); // unchanged (≤ new max)
+  });
+
+  it('clamps currentHp when swapping to weaker armor lowers maxHp', () => {
+    const wearingPlate = { ...player(), maxHp: 60, currentHp: 60, armor: plate };
+    const st = runState({ player: wearingPlate, collection: owning({ ownedArmor: [armor] }) });
+    const s = runReducer(deps, st, { type: 'EquipArmor', armorId: 'rags' }); // rags maxHpBonus 0
+    expect(s.player.maxHp).toBe(50); // 50 + 0 + (60-50-10=0) special
+    expect(s.player.currentHp).toBe(50); // clamped down from 60
   });
 });
 
@@ -401,6 +444,38 @@ describe('CollectLoot', () => {
     expect(start.collection.ownedCards).toEqual([]); // input untouched
     expect(reward.cards).toHaveLength(1);
   });
+
+  it('routes equipment into the collection (weapons / armor)', () => {
+    const reward: LootReward = { cards: [], weapon: sword, armor: plate, isSpecial: false };
+    const s = runReducer(deps, runState(), { type: 'CollectLoot', reward });
+    expect(s.collection.ownedWeapons).toEqual([sword]);
+    expect(s.collection.ownedArmor).toEqual([plate]);
+  });
+});
+
+describe('AnswerQuestion', () => {
+  it('grants the reward and resumes on a correct answer', () => {
+    const st = runState({ currentLevel: level('L1N2') }); // positioned on the question node
+    const s = runReducer(deps, st, { type: 'AnswerQuestion', answerIndex: 0 }); // correctIndex 0
+    expect(s.screen.name).toBe('level');
+    expect(s.collection.ownedCards).toEqual([
+      { instanceId: 'quiz-prize#0', defId: 'quiz-prize', upgraded: false },
+    ]);
+  });
+
+  it('grants nothing and resumes on a wrong answer', () => {
+    const st = runState({ currentLevel: level('L1N2') });
+    const s = runReducer(deps, st, { type: 'AnswerQuestion', answerIndex: 1 });
+    expect(s.screen.name).toBe('level');
+    expect(s.collection.ownedCards).toEqual([]);
+  });
+
+  it('is a no-op off a question node and with no level', () => {
+    const onStart = runState({ currentLevel: level('L0N0') });
+    expect(runReducer(deps, onStart, { type: 'AnswerQuestion', answerIndex: 0 })).toBe(onStart);
+    const noLevel = runState();
+    expect(runReducer(deps, noLevel, { type: 'AnswerQuestion', answerIndex: 0 })).toBe(noLevel);
+  });
 });
 
 describe('ResolveCombat', () => {
@@ -457,6 +532,27 @@ describe('ResolveCombat', () => {
     expect(s.collection.ownedCards).toEqual([
       { instanceId: 'boss-special#0', defId: 'boss-special', upgraded: false },
     ]);
+    expect(s.screen.name).toBe('levelCleared'); // end boss → cutscene/advance, not the level map
+  });
+
+  it('spends the single-use bag slots played during the fight', () => {
+    const won = combatState({
+      player: { hp: 20, baseMaxHp: 50, statuses: [] },
+      enemies: [
+        { entity: { hp: 0, baseMaxHp: 10, statuses: [] }, defId: 'rat', currentIntentIndex: 0 },
+      ],
+      exhaustPile: [
+        { instanceId: 'bag:ember#0', defId: 'ember', upgraded: false }, // bag slot 0 played
+        { instanceId: 'somecard', defId: 'somecard', upgraded: false }, // non-bag, ignored
+      ],
+    });
+    const st = runState({
+      currentLevel: level('L1N1'),
+      singleUseBag: ['ember', 'frost'],
+      combat: won,
+    });
+    const s = runReducer(deps, st, { type: 'ResolveCombat' });
+    expect(s.singleUseBag).toEqual(['frost']); // slot 0 consumed, slot 1 remains
   });
 
   it('on defeat restarts the run', () => {
@@ -468,6 +564,26 @@ describe('ResolveCombat', () => {
     expect(s.singleUseBag).toEqual([]);
     expect(s.combat).toBeNull();
     expect(s.screen.name).toBe('deckBuilding');
+  });
+});
+
+describe('AdvanceLevel', () => {
+  it('bumps the level index, drops per-level state, and returns to deck-building', () => {
+    const st = runState({
+      levelIndex: 0,
+      currentLevel: level('L2N0'),
+      singleUseBag: ['x'],
+      combat: combatState(),
+      collection: collection([inst('keep')]),
+      screen: { name: 'levelCleared' },
+    });
+    const s = runReducer(deps, st, { type: 'AdvanceLevel' });
+    expect(s.levelIndex).toBe(1);
+    expect(s.currentLevel).toBeNull();
+    expect(s.singleUseBag).toEqual([]);
+    expect(s.combat).toBeNull();
+    expect(s.screen.name).toBe('deckBuilding');
+    expect(s.collection.ownedCards).toEqual([inst('keep')]); // collection persists across levels
   });
 });
 
@@ -549,5 +665,31 @@ describe('defaultRunDeps', () => {
     const leveled = runReducer(real, built, { type: 'GenerateLevel' });
     expect(leveled.currentLevel).not.toBeNull();
     expect(leveled.screen.name).toBe('level');
+  });
+
+  it('defaultPlayer builds a starting player from RuleSet + starter equipment', () => {
+    const p = defaultPlayer();
+    expect(p.weapon.id).toBe('fist');
+    expect(p.armor.id).toBe('rags');
+    expect(p.maxHp).toBe(p.baseMaxHp + p.armor.maxHpBonus);
+    expect(p.currentHp).toBe(p.maxHp);
+  });
+
+  it('drives the real loop start→equip→build→generate via defaultRunDeps + defaultPlayer', () => {
+    const real = defaultRunDeps();
+    let s = runReducer(real, runState(), {
+      type: 'StartRun',
+      seed: 'e2e',
+      player: defaultPlayer(),
+    });
+    expect(s.collection.ownedCards.length).toBe(STARTER_DECK.length);
+
+    const chosen = s.collection.ownedCards.slice(0, 3).map((c) => c.instanceId);
+    s = runReducer(real, s, { type: 'BuildDeck', cardInstanceIds: chosen });
+    expect(s.runDeck.cardInstanceIds).toEqual(chosen);
+
+    s = runReducer(real, s, { type: 'GenerateLevel' });
+    expect(s.currentLevel).not.toBeNull();
+    expect(s.screen.name).toBe('level');
   });
 });
