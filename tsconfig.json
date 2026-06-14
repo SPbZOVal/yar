@@ -21,5 +21,8 @@
     "verbatimModuleSyntax": true,
     "noEmit": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  // The native MMKV store and the RN app UI are typechecked by tsconfig.app.json (which has
+  // react/react-native types + jsx); the strict pure-TS core gate stays free of native deps.
+  "exclude": ["src/persistence/mmkvStore.ts", "src/ui"]
 }

@@ -18,6 +18,18 @@ import type { RunDeps } from './runReducer';
 export { runReducer } from './runReducer';
 export type { RunAction, RunDeps } from './runReducer';
 
+/**
+ * Build `CombatDeps` for a player — the content registries plus the player's per-turn hand
+ * size / energy. Shared by `startCombat` (below) and the store, which dispatches in-combat
+ * actions (`PlayCard`/`EndTurn`) against `run.combat` between `EnterNode`/`ResolveCombat`.
+ */
+export const defaultCombatDeps = (player: PlayerState): CombatDeps => ({
+  getDef: getCardDef,
+  getEnemyDef,
+  handSize: player.handSize,
+  energyPerTurn: player.energyPerTurn,
+});
+
 /** Placeholder state for `StartCombat` — the reducer ignores it and builds combat fresh. */
 const EMPTY_COMBAT: CombatState = {
   player: { hp: 0, baseMaxHp: 0, statuses: [] },
@@ -90,21 +102,14 @@ export const defaultRunDeps = (): RunDeps => {
     generationParams: GENERATION_PARAMS,
     starterCards: STARTER_DECK,
     generateLevel: (params, seed) => generateLevel(params, defaultLevelGenDeps(), seed),
-    startCombat: (player, enemies, deck, seed) => {
-      const combatDeps: CombatDeps = {
-        getDef: getCardDef,
-        getEnemyDef,
-        handSize: player.handSize,
-        energyPerTurn: player.energyPerTurn,
-      };
-      return combatReducer(combatDeps, EMPTY_COMBAT, {
+    startCombat: (player, enemies, deck, seed) =>
+      combatReducer(defaultCombatDeps(player), EMPTY_COMBAT, {
         type: 'StartCombat',
         player: projectPlayer(player),
         enemies,
         deck,
         seed,
-      });
-    },
+      }),
     rollChestLoot: (seed) => rollChestLoot(lootDeps, seed),
     rollBossLoot: (seed, isEndBoss) => rollBossLoot(lootDeps, seed, isEndBoss),
   };

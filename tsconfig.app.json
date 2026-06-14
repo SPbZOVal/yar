@@ -1,0 +1,12 @@
+{
+  // App typecheck: the RN/Expo layer (jsx + react/react-native types). The strict pure-TS core
+  // gate is the root tsconfig.json (`yarn typecheck`); this is `yarn typecheck:app`.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM"],
+    "types": ["jest", "node", "react"],
+    "noEmit": true
+  },
+  "include": ["App.tsx", "index.ts", "src/ui", "src/persistence/mmkvStore.ts"]
+}

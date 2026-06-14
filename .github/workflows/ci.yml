@@ -50,6 +50,10 @@ jobs:
         if: steps.app.outputs.present == 'true'
         run: yarn typecheck
 
+      - name: Typecheck app (Expo/RN)
+        if: steps.app.outputs.present == 'true'
+        run: yarn typecheck:app
+
       - name: Tests (Jest)
         if: steps.app.outputs.present == 'true'
         run: yarn test --ci --coverage
