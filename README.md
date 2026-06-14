@@ -7,6 +7,7 @@
 *Собери колоду. Прорвись через карту локаций. Умри. Стань сильнее. Повтори.*
 
 [![CI](https://github.com/SPbZOVal/yar/actions/workflows/ci.yml/badge.svg)](https://github.com/SPbZOVal/yar/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/SPbZOVal/yar/graph/badge.svg)](https://codecov.io/gh/SPbZOVal/yar)
 [![License: MIT](https://img.shields.io/github/license/SPbZOVal/yar?color=blue)](./LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Android-3DDC84?logo=android&logoColor=white)](#)
 [![React Native](https://img.shields.io/badge/React_Native-0.7x-61DAFB?logo=react&logoColor=white)](https://reactnative.dev/)

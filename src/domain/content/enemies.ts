@@ -51,6 +51,16 @@ export const ENEMIES = [
     ],
   },
   {
+    id: 'spider',
+    name: 'Spider',
+    maxHp: 14,
+    isBoss: false,
+    intents: [
+      { kind: 'poison', value: 3 },
+      { kind: 'attack', value: 4 },
+    ],
+  },
+  {
     id: 'warden',
     name: 'Warden',
     maxHp: 40,
@@ -66,6 +76,7 @@ export const ENEMIES = [
     maxHp: 60,
     isBoss: true,
     intents: [
+      { kind: 'buff', value: 3 },
       { kind: 'attack', value: 10 },
       { kind: 'block', value: 8 },
       { kind: 'attack', value: 14 },
