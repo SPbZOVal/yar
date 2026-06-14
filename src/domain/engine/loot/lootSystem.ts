@@ -1,10 +1,12 @@
 /**
- * LootSystem — pure, deterministic loot rolls (cards-only for now).
+ * LootSystem — pure, deterministic loot rolls (cards + equipment).
  *
  * Rewards are rolled with the {@link Rand} monad so the same seed always yields the same
- * drop. The card pool and rarity weights are injected (never hardcoded) so content and
- * balance live in `content/` + `RuleSet`, not here. A roll picks a rarity by weight, then
- * a card from that rarity bucket; an empty bucket falls back to the nearest lower rarity.
+ * drop. The pools and weights are injected (never hardcoded) so content and balance live in
+ * `content/` + `RuleSet`, not here. A roll first checks `equipmentDropChance`: on a hit it
+ * yields one weapon/armor piece (an empty pool falls back to a card); otherwise it picks a
+ * rarity by weight, then a card from that bucket — an empty bucket falls back to the nearest
+ * lower rarity.
  *
  * Gating mirrors the model contracts (§7.1, §7.6):
  *  - chests (`rollChestLoot`) never yield `isSpecial` or `Rarity.Boss` cards;
@@ -16,20 +18,25 @@
  * by the run reducer's loot routing.
  */
 import { Rarity } from '../../model';
-import type { CardDefinition, LootReward, QuestionData } from '../../model';
+import type { Armor, CardDefinition, LootReward, QuestionData, Weapon } from '../../model';
 import { Rand } from '../../rng/rng';
 import type { Rand as RandT, Seed } from '../../rng/rng';
 
 /** Rarity tiers, lowest → highest; drives weighted picks and empty-bucket fallback. */
 const RARITY_ORDER: readonly Rarity[] = [Rarity.Common, Rarity.Uncommon, Rarity.Rare, Rarity.Boss];
 
-/** Card pool + rarity weights the rollers need. Drawn from content/`RuleSet` in production. */
+/** Card + equipment pools and weights the rollers need. Drawn from content/`RuleSet`. */
 export interface LootDeps {
   readonly cardPool: readonly CardDefinition[];
   /** Chest weights — `Boss` weight should be 0 so chests never roll Boss-rarity. */
   readonly rarityWeights: Record<Rarity, number>;
   /** Boss-table weights — `Rare`/`Boss`-heavy. */
   readonly bossRarityWeights: Record<Rarity, number>;
+  /** Equipment drop pools; an empty pool is skipped (the roll falls back to a card). */
+  readonly weaponPool: readonly Weapon[];
+  readonly armorPool: readonly Armor[];
+  /** Probability [0,1] a chest/boss reward is an equipment piece instead of a card. */
+  readonly equipmentDropChance: number;
 }
 
 /** A question prompt without its reward (the reward is rolled at placement time). */
@@ -95,9 +102,56 @@ const cardReward =
     return [{ cards: card === undefined ? [] : [card], isSpecial }, s2];
   };
 
-/** Roll a chest reward: one non-special, non-Boss card. */
+/** A coin flip that comes up `true` with probability `p` (clamped to [0,1]). */
+const chance =
+  (p: number): RandT<boolean> =>
+  (seed) => {
+    const [n, next] = Rand.nextInt(1000)(seed);
+    return [n < Math.round(Math.max(0, Math.min(1, p)) * 1000), next];
+  };
+
+/**
+ * One equipment piece: weapon or armor (50/50, skipping an empty pool), uniform within the
+ * chosen pool. `undefined` only when both pools are empty.
+ */
+const equipmentReward =
+  (deps: LootDeps, isSpecial: boolean): RandT<LootReward | undefined> =>
+  (seed) => {
+    const haveWeapon = deps.weaponPool.length > 0;
+    const haveArmor = deps.armorPool.length > 0;
+    if (!haveWeapon && !haveArmor) return [undefined, seed];
+    const [coin, s1] = Rand.nextInt(2)(seed);
+    if (haveWeapon && (coin === 0 || !haveArmor)) {
+      const [idx, s2] = Rand.nextInt(deps.weaponPool.length)(s1);
+      return [{ cards: [], weapon: deps.weaponPool[idx] as Weapon, isSpecial }, s2];
+    }
+    const [idx, s2] = Rand.nextInt(deps.armorPool.length)(s1);
+    return [{ cards: [], armor: deps.armorPool[idx] as Armor, isSpecial }, s2];
+  };
+
+/**
+ * With `equipmentDropChance`, an equipment piece; otherwise a card from `weights`. An empty
+ * equipment pool falls back to a card (the chance roll is still consumed for determinism).
+ */
+const reward =
+  (
+    deps: LootDeps,
+    weights: Record<Rarity, number>,
+    allowSpecial: boolean,
+    isSpecial: boolean,
+  ): RandT<LootReward> =>
+  (seed) => {
+    const [isEquip, s1] = chance(deps.equipmentDropChance)(seed);
+    if (!isEquip) return cardReward(deps, weights, allowSpecial, isSpecial)(s1);
+    const [equip, s2] = equipmentReward(deps, isSpecial)(s1);
+    return equip === undefined
+      ? cardReward(deps, weights, allowSpecial, isSpecial)(s2)
+      : [equip, s2];
+  };
+
+/** Roll a chest reward: an equipment piece (chance) or one non-special, non-Boss card. */
 export function rollChestLoot(deps: LootDeps, seed: Seed): readonly [LootReward, Seed] {
-  return cardReward(deps, deps.rarityWeights, false, false)(seed);
+  return reward(deps, deps.rarityWeights, false, false)(seed);
 }
 
 /**
@@ -109,7 +163,7 @@ export function rollBossLoot(
   seed: Seed,
   isEndBoss: boolean,
 ): readonly [LootReward, Seed] {
-  return cardReward(deps, deps.bossRarityWeights, isEndBoss, isEndBoss)(seed);
+  return reward(deps, deps.bossRarityWeights, isEndBoss, isEndBoss)(seed);
 }
 
 const FALLBACK_QUESTION: QuestionTemplate = { text: '', options: [], correctIndex: 0 };

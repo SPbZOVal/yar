@@ -11,9 +11,12 @@
  * deck (resolved against `collection`) plus the level's single-use bag + the node's enemies
  * (combat seed `seedFrom(`${seed}:combat:${nodeId}`)`) and store the resulting
  * {@link CombatState}. `CollectLoot` routes permanent cards into `collection`, single-use
- * cards into the level bag. `ResolveCombat` reads a finished fight back into the run:
- * victory rolls loot for the cleared node, syncs player HP, and resumes navigation; defeat
- * restarts the run.
+ * cards into the level bag. `EquipWeapon`/`EquipArmor` set the player's gear from the
+ * collection during deck-building (recomputing maxHp). `AnswerQuestion` grants a question
+ * node's pre-rolled reward on a correct answer. `ResolveCombat` reads a finished fight back
+ * into the run: victory rolls loot for the cleared node, spends played single-use bag cards,
+ * syncs player HP, and either resumes navigation or — on the end boss — routes to
+ * `levelCleared`, from which `AdvanceLevel` starts the next level; defeat restarts the run.
  */
 import { seedFrom } from '../../rng/rng';
 import type { Seed } from '../../rng/rng';
@@ -32,15 +35,20 @@ import type {
   RunState,
   ScreenState,
 } from '../../model';
+import { maxHpFormula } from '../../ruleset/ruleset';
 import { checkOutcome } from '../combat';
 
 export type RunAction =
   | { readonly type: 'StartRun'; readonly seed: string; readonly player: PlayerState }
   | { readonly type: 'BuildDeck'; readonly cardInstanceIds: readonly string[] }
+  | { readonly type: 'EquipWeapon'; readonly weaponId: string }
+  | { readonly type: 'EquipArmor'; readonly armorId: string }
   | { readonly type: 'GenerateLevel' }
   | { readonly type: 'EnterNode'; readonly nodeId: string }
   | { readonly type: 'CollectLoot'; readonly reward: LootReward }
+  | { readonly type: 'AnswerQuestion'; readonly answerIndex: number }
   | { readonly type: 'ResolveCombat' }
+  | { readonly type: 'AdvanceLevel' }
   | { readonly type: 'OnPlayerDeath' };
 
 /** Config the run reducer needs (combat construction is pre-bound in `startCombat`). */
@@ -106,6 +114,37 @@ function reduceBuildDeck(
     .filter((id) => owned.has(id))
     .slice(0, state.runDeck.maxDeckSize);
   return { ...state, runDeck: { ...state.runDeck, cardInstanceIds } };
+}
+
+/** Equip an owned weapon (no-op if the collection doesn't own it). Deck-building action. */
+function reduceEquipWeapon(
+  _deps: RunDeps,
+  state: RunState,
+  action: Extract<RunAction, { type: 'EquipWeapon' }>,
+): RunState {
+  const weapon = state.collection.ownedWeapons.find((w) => w.id === action.weaponId);
+  if (weapon === undefined) return state;
+  return { ...state, player: { ...state.player, weapon } };
+}
+
+/**
+ * Equip an owned armor (no-op if not owned), recomputing `maxHp` and re-clamping `currentHp`.
+ * The "+heart" special bonus is preserved as `maxHp - baseMaxHp - oldArmor.maxHpBonus`.
+ */
+function reduceEquipArmor(
+  _deps: RunDeps,
+  state: RunState,
+  action: Extract<RunAction, { type: 'EquipArmor' }>,
+): RunState {
+  const armor = state.collection.ownedArmor.find((a) => a.id === action.armorId);
+  if (armor === undefined) return state;
+  const player = state.player;
+  const specialBonus = player.maxHp - player.baseMaxHp - player.armor.maxHpBonus;
+  const maxHp = maxHpFormula(player.baseMaxHp, armor.maxHpBonus, specialBonus);
+  return {
+    ...state,
+    player: { ...player, armor, maxHp, currentHp: Math.min(player.currentHp, maxHp) },
+  };
 }
 
 function reduceGenerateLevel(deps: RunDeps, state: RunState): RunState {
@@ -176,7 +215,10 @@ function reduceEnterNode(
   return { ...state, currentLevel, screen: screenForNode(target) };
 }
 
-/** Route a reward's cards: permanents into the collection, single-use into the level bag. */
+/**
+ * Route a reward into the run: permanent cards + equipment into the collection (for future
+ * runs), single-use cards into the current level's bag.
+ */
 function routeReward(state: RunState, reward: LootReward): RunState {
   let owned = state.collection.ownedCards;
   let bag = state.singleUseBag;
@@ -184,8 +226,19 @@ function routeReward(state: RunState, reward: LootReward): RunState {
     if (def.type === CardType.Permanent) owned = addOwnedCard(owned, def.id);
     else bag = [...bag, def.id];
   }
-  // TODO: equipment loot (reward.weapon/armor) once the loot rollers produce it.
-  return { ...state, singleUseBag: bag, collection: { ...state.collection, ownedCards: owned } };
+  const ownedWeapons =
+    reward.weapon === undefined
+      ? state.collection.ownedWeapons
+      : [...state.collection.ownedWeapons, reward.weapon];
+  const ownedArmor =
+    reward.armor === undefined
+      ? state.collection.ownedArmor
+      : [...state.collection.ownedArmor, reward.armor];
+  return {
+    ...state,
+    singleUseBag: bag,
+    collection: { ...state.collection, ownedCards: owned, ownedWeapons, ownedArmor },
+  };
 }
 
 function reduceCollectLoot(
@@ -194,6 +247,25 @@ function reduceCollectLoot(
   action: Extract<RunAction, { type: 'CollectLoot' }>,
 ): RunState {
   return routeReward(state, action.reward);
+}
+
+/**
+ * Answer the current question node: a correct `answerIndex` grants the pre-rolled reward, a
+ * wrong one yields nothing. Either way navigation resumes. No-op off a question node.
+ */
+function reduceAnswerQuestion(
+  _deps: RunDeps,
+  state: RunState,
+  action: Extract<RunAction, { type: 'AnswerQuestion' }>,
+): RunState {
+  const level = state.currentLevel;
+  if (level === null) return state;
+  const content = level.nodes.get(level.currentNodeId)?.content;
+  if (content?.kind !== 'question') return state;
+  const base: RunState = { ...state, screen: { name: 'level' } };
+  return action.answerIndex === content.question.correctIndex
+    ? routeReward(base, content.question.rewardOnCorrect)
+    : base;
 }
 
 /** Reset the run to deck-building (death / defeat). `collection` survives via `...state`. */
@@ -221,21 +293,61 @@ function awardCombatLoot(deps: RunDeps, state: RunState): RunState {
   return state;
 }
 
+/** Drop the level-bag slots whose ephemeral `bag:<defId>#<i>` instances were exhausted. */
+function consumeBag(
+  singleUseBag: readonly string[],
+  exhaustPile: readonly CardInstance[],
+): readonly string[] {
+  const consumed = new Set<number>();
+  for (const c of exhaustPile) {
+    const m = /^bag:.*#(\d+)$/.exec(c.instanceId);
+    if (m?.[1] !== undefined) consumed.add(Number(m[1]));
+  }
+  return consumed.size === 0 ? singleUseBag : singleUseBag.filter((_, i) => !consumed.has(i));
+}
+
+/** True when the run is positioned on the level's end (root) boss node. */
+function isEndBossNode(level: LevelGraph): boolean {
+  const content = level.nodes.get(level.currentNodeId)?.content;
+  return level.currentNodeId === level.endId && content?.kind === 'boss';
+}
+
 function reduceResolveCombat(deps: RunDeps, state: RunState): RunState {
   const combat = state.combat;
   if (combat === null) return state;
   const outcome = checkOutcome(combat); // derive from HP; don't trust a possibly-stale phase
   if (outcome === CombatPhase.Defeat) return restartRun(state);
   if (outcome === CombatPhase.Victory) {
+    const endBoss = state.currentLevel !== null && isEndBossNode(state.currentLevel);
     const synced: RunState = {
       ...state,
       player: { ...state.player, currentHp: Math.max(0, combat.player.hp) },
+      // Single-use cards played this fight are spent for the level.
+      singleUseBag: consumeBag(state.singleUseBag, combat.exhaustPile),
       combat: null,
-      screen: { name: 'level' }, // resume navigation
+      // End boss → 'levelCleared' (UI shows the cutscene, then dispatches AdvanceLevel);
+      // mid-boss / combat → resume navigation on the level map.
+      screen: { name: endBoss ? 'levelCleared' : 'level' },
     };
     return awardCombatLoot(deps, synced);
   }
   return state; // still ongoing → no-op
+}
+
+/**
+ * Advance to the next level after the end boss: bump `levelIndex`, drop per-level state, and
+ * return to deck-building (the player re-picks a deck from the persisted collection). HP carries
+ * over (no auto-heal). `GenerateLevel` keys on `levelIndex`, so the next level differs by seed.
+ */
+function reduceAdvanceLevel(_deps: RunDeps, state: RunState): RunState {
+  return {
+    ...state,
+    levelIndex: state.levelIndex + 1,
+    currentLevel: null,
+    singleUseBag: [],
+    combat: null,
+    screen: DECK_BUILDING,
+  };
 }
 
 function reduceOnPlayerDeath(_deps: RunDeps, state: RunState): RunState {
@@ -253,10 +365,14 @@ type RunReducerTable = {
 const TABLE: RunReducerTable = {
   StartRun: reduceStartRun,
   BuildDeck: reduceBuildDeck,
+  EquipWeapon: reduceEquipWeapon,
+  EquipArmor: reduceEquipArmor,
   GenerateLevel: reduceGenerateLevel,
   EnterNode: reduceEnterNode,
   CollectLoot: reduceCollectLoot,
+  AnswerQuestion: reduceAnswerQuestion,
   ResolveCombat: reduceResolveCombat,
+  AdvanceLevel: reduceAdvanceLevel,
   OnPlayerDeath: reduceOnPlayerDeath,
 };
 

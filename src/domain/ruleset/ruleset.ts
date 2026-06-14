@@ -53,7 +53,8 @@ export const GENERATION_PARAMS: GenerationParams = {
  * Loot-roll tuning (§7.6, §10.2). Rarity weights drive the cumulative weighted pick in
  * the LootSystem; chests roll on `rarityWeights` (Boss-rarity weight 0, so chests never
  * yield Boss cards), the end boss rolls on `bossRarityWeights` (Rare/Boss-heavy).
- * `equipmentDropChance` is 0 for now — loot is cards-only until a weapon/armor pool lands.
+ * `equipmentDropChance` is the probability a chest/boss reward is a weapon/armor piece
+ * (from the `content/weapons`+`content/armor` pools) instead of a card.
  */
 export const LOOT_PARAMS: {
   readonly rarityWeights: Record<Rarity, number>;
@@ -62,7 +63,7 @@ export const LOOT_PARAMS: {
 } = {
   rarityWeights: { Common: 60, Uncommon: 30, Rare: 10, Boss: 0 },
   bossRarityWeights: { Common: 0, Uncommon: 20, Rare: 50, Boss: 30 },
-  equipmentDropChance: 0,
+  equipmentDropChance: 0.15,
 };
 
 /**

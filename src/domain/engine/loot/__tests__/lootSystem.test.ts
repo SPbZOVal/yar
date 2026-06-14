@@ -1,5 +1,5 @@
 import { CardCategory, CardType, Rarity } from '../../../model';
-import type { CardDefinition } from '../../../model';
+import type { Armor, CardDefinition, Weapon } from '../../../model';
 import { seedFrom } from '../../../rng/rng';
 import { rollBossLoot, rollChestLoot, rollQuestion } from '../lootSystem';
 import type { LootDeps, QuestionDeps, QuestionTemplate } from '../lootSystem';
@@ -33,10 +33,14 @@ const POOL: readonly CardDefinition[] = [
   card('heart', Rarity.Rare, { isSpecial: true }),
 ];
 
+// Card-only fixture: no equipment (chance 0), so the card assertions below stay focused.
 const deps: LootDeps = {
   cardPool: POOL,
   rarityWeights: { Common: 60, Uncommon: 30, Rare: 10, Boss: 0 },
   bossRarityWeights: { Common: 0, Uncommon: 0, Rare: 0, Boss: 100 },
+  weaponPool: [],
+  armorPool: [],
+  equipmentDropChance: 0,
 };
 
 const qDeps: QuestionDeps = {
@@ -112,6 +116,9 @@ describe('rarity fallback', () => {
       cardPool: [card('c1', Rarity.Common), card('c2', Rarity.Common)],
       rarityWeights: { Common: 0, Uncommon: 0, Rare: 100, Boss: 0 }, // forces Rare → empty → Common
       bossRarityWeights: deps.bossRarityWeights,
+      weaponPool: [],
+      armorPool: [],
+      equipmentDropChance: 0,
     };
     const [reward] = rollChestLoot(commonsOnly, seedFrom('fallback'));
     expect(only(reward)?.rarity).toBe(Rarity.Common);
@@ -121,6 +128,61 @@ describe('rarity fallback', () => {
     const empty: LootDeps = { ...deps, cardPool: [] };
     const [reward] = rollChestLoot(empty, seedFrom('none'));
     expect(reward.cards).toEqual([]);
+  });
+});
+
+// --- equipment drops ------------------------------------------------------
+
+describe('equipment drops', () => {
+  const weapon = (id: string, tier = 1): Weapon => ({ id, name: id, attackBonus: tier, tier });
+  const armorPiece = (id: string, tier = 1): Armor => ({
+    id,
+    name: id,
+    maxHpBonus: tier * 5,
+    blockBonus: tier,
+    tier,
+  });
+  // Chance 1 ⇒ every roll is equipment (when a pool is non-empty).
+  const equipDeps: LootDeps = {
+    ...deps,
+    weaponPool: [weapon('w1')],
+    armorPool: [armorPiece('a1')],
+    equipmentDropChance: 1,
+  };
+
+  it('yields exactly one equipment piece (no card) and is deterministic', () => {
+    for (let i = 0; i < 40; i++) {
+      const [reward, seed] = rollChestLoot(equipDeps, seedFrom(`eq${i}`));
+      const [reward2, seed2] = rollChestLoot(equipDeps, seedFrom(`eq${i}`));
+      expect(reward).toEqual(reward2);
+      expect(seed).toBe(seed2);
+      expect(reward.cards).toEqual([]);
+      expect(Number(reward.weapon !== undefined) + Number(reward.armor !== undefined)).toBe(1);
+    }
+  });
+
+  it('rolls both weapons and armor across seeds', () => {
+    const kinds = new Set(
+      Array.from({ length: 40 }, (_, i) => {
+        const [r] = rollChestLoot(equipDeps, seedFrom(`mix${i}`));
+        return r.weapon !== undefined ? 'weapon' : 'armor';
+      }),
+    );
+    expect(kinds).toEqual(new Set(['weapon', 'armor']));
+  });
+
+  it('end-boss equipment is flagged special', () => {
+    const [reward] = rollBossLoot(equipDeps, seedFrom('boss-eq'), true);
+    expect(reward.isSpecial).toBe(true);
+    expect(reward.cards).toEqual([]);
+  });
+
+  it('falls back to a card when both equipment pools are empty (chance still consumed)', () => {
+    const noEquip: LootDeps = { ...deps, equipmentDropChance: 1 }; // pools are []
+    const [reward] = rollChestLoot(noEquip, seedFrom('fallback-eq'));
+    expect(reward.weapon).toBeUndefined();
+    expect(reward.armor).toBeUndefined();
+    expect(reward.cards).toHaveLength(1);
   });
 });
 

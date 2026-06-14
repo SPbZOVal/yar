@@ -1,10 +1,14 @@
 /** Barrel for the run reducer: pure reducer + production deps from content/registries. */
-import { BALANCE_CONSTANTS, GENERATION_PARAMS } from '../../ruleset/ruleset';
+import { BALANCE_CONSTANTS, GENERATION_PARAMS, maxHpFormula } from '../../ruleset/ruleset';
 import { CombatPhase, Lifetime, StatusKind } from '../../model';
 import type { CombatState, Entity, PlayerState, Status } from '../../model';
 import { getCardDef } from '../../registry/cardRegistry';
 import { getEnemyDef } from '../../registry/enemyRegistry';
+import { getWeaponDef } from '../../registry/weaponRegistry';
+import { getArmorDef } from '../../registry/armorRegistry';
 import { STARTER_DECK } from '../../content/starterDeck';
+import { STARTER_WEAPON_ID } from '../../content/weapons';
+import { STARTER_ARMOR_ID } from '../../content/armor';
 import { combatReducer } from '../combat';
 import type { CombatDeps } from '../combat';
 import { defaultLevelGenDeps, generateLevel } from '../level';
@@ -26,6 +30,26 @@ const EMPTY_COMBAT: CombatState = {
   turn: 0,
   phase: CombatPhase.PlayerTurn,
   rng: 0,
+};
+
+/**
+ * The starting {@link PlayerState} for a new run: base stats from `RuleSet`, the starter
+ * weapon/armor, and `maxHp` via `maxHpFormula` (no special bonus yet). The store dispatches
+ * `StartRun` with this (or a meta-modified variant) at the top of the run.
+ */
+export const defaultPlayer = (): PlayerState => {
+  const weapon = getWeaponDef(STARTER_WEAPON_ID);
+  const armor = getArmorDef(STARTER_ARMOR_ID);
+  const maxHp = maxHpFormula(BALANCE_CONSTANTS.baseMaxHp, armor.maxHpBonus, 0);
+  return {
+    baseMaxHp: BALANCE_CONSTANTS.baseMaxHp,
+    currentHp: maxHp,
+    maxHp,
+    handSize: BALANCE_CONSTANTS.defaultHandSize,
+    energyPerTurn: BALANCE_CONSTANTS.defaultEnergyPerTurn,
+    weapon,
+    armor,
+  };
 };
 
 /**
