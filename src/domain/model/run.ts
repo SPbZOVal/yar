@@ -1,7 +1,7 @@
 /** Run-level state. See docs/architecture/03-data-model.md §7.7. */
 import type { CombatState } from './combat';
 import type { LevelGraph } from './level';
-import type { RunDeck } from './collection';
+import type { Collection, RunDeck } from './collection';
 import type { PlayerState } from './player';
 
 /**
@@ -20,6 +20,8 @@ export interface ScreenState {
 export interface RunState {
   readonly player: PlayerState;
   readonly runDeck: RunDeck;
+  /** The run's working CardInstance store: resolves runDeck ids; receives collected permanents. */
+  readonly collection: Collection;
   readonly currentLevel: LevelGraph | null;
   readonly levelIndex: number;
   /** IDs of single-use cards present on the current level (separate lifecycle). */
