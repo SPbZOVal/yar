@@ -3,8 +3,9 @@ name: Release
 # Срабатывает при пуше тега вида vX.Y.Z (см. SemVer в docs/architecture/06-development.md).
 # Собирает релизные артефакты Android и публикует GitHub Release.
 #
-# Сборка активируется, когда в репозитории появится каталог android/. До этого
-# момента джоб просто создаёт GitHub Release по тегу (без артефактов).
+# Каталог android/ в .gitignore — он генерируется из app.json шагом `expo prebuild`
+# перед сборкой. До появления Expo-приложения джоб просто создаёт GitHub Release
+# по тегу (без артефактов).
 #
 # Для подписи релиза задайте секреты репозитория:
 #   ANDROID_KEYSTORE_BASE64    — keystore (.jks), закодированный base64
@@ -29,46 +30,51 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Detect Android project
-        id: android
+      - name: Detect Expo app
+        id: app
         run: |
-          if [ -d android ]; then
+          if [ -f package.json ] && [ -f app.json ]; then
             echo "present=true" >> "$GITHUB_OUTPUT"
           else
             echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::каталог android/ не найден — будет создан GitHub Release без артефактов."
+            echo "::warning::Expo-приложение не найдено — будет создан GitHub Release без артефактов."
           fi
 
       - name: Setup Node
-        if: steps.android.outputs.present == 'true'
+        if: steps.app.outputs.present == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: yarn
 
       - name: Install dependencies
-        if: steps.android.outputs.present == 'true'
+        if: steps.app.outputs.present == 'true'
         run: yarn install --frozen-lockfile
 
       - name: Setup JDK 17
-        if: steps.android.outputs.present == 'true'
+        if: steps.app.outputs.present == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
       - name: Setup Gradle
-        if: steps.android.outputs.present == 'true'
+        if: steps.app.outputs.present == 'true'
         uses: gradle/actions/setup-gradle@v4
 
+      # Каталог android/ в .gitignore — генерируем его из app.json перед сборкой.
+      - name: Prebuild native Android project
+        if: steps.app.outputs.present == 'true'
+        run: npx expo prebuild --platform android --no-install
+
       - name: Decode signing keystore
-        if: steps.android.outputs.present == 'true' && env.HAS_KEYSTORE == 'true'
+        if: steps.app.outputs.present == 'true' && env.HAS_KEYSTORE == 'true'
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/release.keystore
 
       - name: Build release bundle (AAB) and APK
-        if: steps.android.outputs.present == 'true'
+        if: steps.app.outputs.present == 'true'
         working-directory: android
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
