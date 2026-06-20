@@ -555,15 +555,20 @@ describe('ResolveCombat', () => {
     expect(s.singleUseBag).toEqual(['frost']); // slot 0 consumed, slot 1 remains
   });
 
-  it('on defeat restarts the run', () => {
+  it('on defeat routes to the death screen, keeping run state for the summary (reset on OnPlayerDeath)', () => {
     const lost = combatState({ player: { hp: 0, baseMaxHp: 50, statuses: [] } });
     const st = runState({ player: player(0), levelIndex: 2, singleUseBag: ['x'], combat: lost });
     const s = runReducer(deps, st, { type: 'ResolveCombat' });
-    expect(s.player.currentHp).toBe(50);
-    expect(s.levelIndex).toBe(0);
-    expect(s.singleUseBag).toEqual([]);
     expect(s.combat).toBeNull();
-    expect(s.screen.name).toBe('deckBuilding');
+    expect(s.screen.name).toBe('death');
+    expect(s.player.currentHp).toBe(0); // not reset yet
+    expect(s.levelIndex).toBe(2);
+    // OnPlayerDeath performs the actual restart.
+    const restarted = runReducer(deps, s, { type: 'OnPlayerDeath' });
+    expect(restarted.player.currentHp).toBe(50);
+    expect(restarted.levelIndex).toBe(0);
+    expect(restarted.singleUseBag).toEqual([]);
+    expect(restarted.screen.name).toBe('deckBuilding');
   });
 });
 

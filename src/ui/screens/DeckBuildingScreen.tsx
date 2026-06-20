@@ -3,7 +3,7 @@ import { View, Text, Pressable, FlatList, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getCardDef } from '../../domain/registry/cardRegistry';
 import { selectCollection, selectPlayer } from '../../store';
-import { useGameStore } from '../store/useGameStore';
+import { useGameStore } from '../store/GameStoreContext';
 
 /**
  * Deck-building (docs §9): pick up to `maxDeckSize` cards from the collection, optionally swap

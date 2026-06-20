@@ -1,30 +1,35 @@
-import { View, Text, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { selectScreen } from '../../store';
-import { useGameStore } from '../store/useGameStore';
+import { useGameStore } from '../store/GameStoreContext';
 import { DeckBuildingScreen } from './DeckBuildingScreen';
+import { LevelMapScreen } from './LevelMapScreen';
+import { CombatScreen } from './CombatScreen';
+import { LootScreen } from './LootScreen';
+import { QuestionScreen } from './QuestionScreen';
+import { LevelClearedScreen } from './LevelClearedScreen';
+import { DeathScreen } from './DeathScreen';
 
 /**
- * In-run router: renders the sub-screen for the current domain `run.screen`. Only deck-building
- * is implemented so far; the level map / combat / loot / question screens (Skia) are the next PR
- * and show a placeholder for now.
+ * In-run router: renders the sub-screen for the current domain `run.screen`. Content-less nodes
+ * (`node:*`) just advanced the player on the map, so the default falls back to the level map.
  */
 export function GameScreen() {
   const screen = useGameStore(selectScreen);
 
-  if (screen === 'deckBuilding') return <DeckBuildingScreen />;
-
-  return (
-    <SafeAreaView style={styles.center}>
-      <Text style={styles.text}>{`Экран «${screen}» скоро будет`}</Text>
-      <Text style={styles.hint}>Следующий PR: карта уровня и бой (Skia)</Text>
-      <View />
-    </SafeAreaView>
-  );
+  switch (screen) {
+    case 'deckBuilding':
+      return <DeckBuildingScreen />;
+    case 'combat':
+      return <CombatScreen />;
+    case 'loot':
+      return <LootScreen />;
+    case 'question':
+      return <QuestionScreen />;
+    case 'levelCleared':
+      return <LevelClearedScreen />;
+    case 'death':
+      return <DeathScreen />;
+    case 'level':
+    default:
+      return <LevelMapScreen />;
+  }
 }
-
-const styles = StyleSheet.create({
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#11131a' },
-  text: { fontSize: 20, color: '#f4f4f5' },
-  hint: { fontSize: 14, color: '#9ca3af', marginTop: 8 },
-});
