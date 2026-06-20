@@ -26,6 +26,12 @@ const ui = {
   transformIgnorePatterns: uiTransformIgnore,
   // setupFilesAfterEnv (not setupFiles) so jest-expo's own RN setup is preserved.
   setupFilesAfterEnv: [...(expo.setupFilesAfterEnv ?? []), '<rootDir>/jest.setup.ui.js'],
+  // The screens load domain/store/persistence code, so without this the ui project
+  // (babel/jest-expo) would instrument those pure-TS files too — and merging them with
+  // the `core` project's ts-jest instrumentation corrupts the report (domain branch/
+  // function coverage collapses well below its real value). Coverage of everything
+  // outside src/ui is owned solely by `core`; skip it here.
+  coveragePathIgnorePatterns: ['/node_modules/', '<rootDir>/src/(?!ui/)'],
 };
 
 module.exports = {
