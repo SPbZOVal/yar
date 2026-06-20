@@ -246,7 +246,8 @@ function reduceCollectLoot(
   state: RunState,
   action: Extract<RunAction, { type: 'CollectLoot' }>,
 ): RunState {
-  return routeReward(state, action.reward);
+  // Collect the chest, then return to the level map (loot-node flow).
+  return { ...routeReward(state, action.reward), screen: { name: 'level' } };
 }
 
 /**
@@ -316,7 +317,9 @@ function reduceResolveCombat(deps: RunDeps, state: RunState): RunState {
   const combat = state.combat;
   if (combat === null) return state;
   const outcome = checkOutcome(combat); // derive from HP; don't trust a possibly-stale phase
-  if (outcome === CombatPhase.Defeat) return restartRun(state);
+  // Defeat → show the death screen (run state kept for the summary); the reset happens on
+  // OnPlayerDeath ("Заново"), which restarts to deck-building preserving the collection.
+  if (outcome === CombatPhase.Defeat) return { ...state, combat: null, screen: { name: 'death' } };
   if (outcome === CombatPhase.Victory) {
     const endBoss = state.currentLevel !== null && isEndBossNode(state.currentLevel);
     const synced: RunState = {

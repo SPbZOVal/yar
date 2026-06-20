@@ -2,7 +2,7 @@ import { Text, Pressable, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/AppNavigator';
-import { useGameStore } from '../store/useGameStore';
+import { useGameStore } from '../store/GameStoreContext';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MainMenu'>;
 

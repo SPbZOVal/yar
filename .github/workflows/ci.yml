@@ -35,7 +35,7 @@ jobs:
         if: steps.app.outputs.present == 'true'
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: yarn
 
       - name: Install dependencies
@@ -85,45 +85,50 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Detect Android project
-        id: android
+      - name: Detect Expo app
+        id: app
         run: |
-          if [ -d android ]; then
+          if [ -f package.json ] && [ -f app.json ]; then
             echo "present=true" >> "$GITHUB_OUTPUT"
           else
             echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::каталог android/ не найден — сборка пропущена."
+            echo "::notice::Expo-приложение не найдено — Android-сборка пропущена."
           fi
 
       - name: Setup Node
-        if: steps.android.outputs.present == 'true'
+        if: steps.app.outputs.present == 'true'
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: yarn
 
       - name: Install dependencies
-        if: steps.android.outputs.present == 'true'
+        if: steps.app.outputs.present == 'true'
         run: yarn install --frozen-lockfile
 
       - name: Setup JDK 17
-        if: steps.android.outputs.present == 'true'
+        if: steps.app.outputs.present == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
       - name: Setup Gradle
-        if: steps.android.outputs.present == 'true'
+        if: steps.app.outputs.present == 'true'
         uses: gradle/actions/setup-gradle@v4
 
+      # Каталог android/ в .gitignore — генерируем его из app.json перед сборкой.
+      - name: Prebuild native Android project
+        if: steps.app.outputs.present == 'true'
+        run: npx expo prebuild --platform android --no-install
+
       - name: Build debug APK
-        if: steps.android.outputs.present == 'true'
+        if: steps.app.outputs.present == 'true'
         working-directory: android
         run: ./gradlew assembleDebug --no-daemon
 
       - name: Upload debug APK
-        if: steps.android.outputs.present == 'true'
+        if: steps.app.outputs.present == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
