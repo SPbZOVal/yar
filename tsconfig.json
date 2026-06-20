@@ -5,7 +5,6 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "types": ["jest", "node"],
-
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
@@ -14,7 +13,6 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "forceConsistentCasingInFileNames": true,
-
     "esModuleInterop": true,
     "skipLibCheck": true,
     "isolatedModules": true,
@@ -22,7 +20,6 @@
     "noEmit": true
   },
   "include": ["src"],
-  // The native MMKV store and the RN app UI are typechecked by tsconfig.app.json (which has
-  // react/react-native types + jsx); the strict pure-TS core gate stays free of native deps.
-  "exclude": ["src/persistence/mmkvStore.ts", "src/ui"]
+  "exclude": ["src/persistence/mmkvStore.ts", "src/ui"],
+  "extends": "expo/tsconfig.base"
 }
