@@ -6,9 +6,10 @@
  * owns the concerns the resolver deferred: energy/cost, the play→discard/exhaust pile
  * policy, the enemy upkeep pipeline, and threading the RNG cursor for determinism.
  */
-import { CardType, CombatPhase } from '../../model';
+import { CardType, CombatPhase, Targeting } from '../../model';
 import type {
   CardDefinition,
+  CombatantRef,
   CombatState,
   EnemyDefinition,
   EnemyInstance,
@@ -28,6 +29,13 @@ export interface CombatDeps {
   readonly getEnemyDef: (defId: string) => EnemyDefinition;
   readonly handSize: number;
   readonly energyPerTurn: number;
+}
+
+/** Every living enemy as a {@link CombatantRef} — the recipients an `All` (cleave) card hits. */
+function livingEnemyRefs(state: CombatState): readonly CombatantRef[] {
+  return state.enemies.flatMap((e, index) =>
+    e.entity.hp > 0 ? [{ side: 'enemy', index } as const] : [],
+  );
 }
 
 /** Build a fresh enemy instance at full HP from its definition. */
@@ -73,7 +81,10 @@ function reducePlayCard(
   if (def.cost > state.energy) return state;
 
   const paid: CombatState = { ...state, energy: state.energy - def.cost };
-  const resolved = applyCard(paid, def, action.source, action.targets);
+  // An `All` card cleaves every living enemy; the engine owns the fan-out so the UI need not
+  // enumerate targets. `One` cards use the caller's chosen target; `Self` effects ignore both.
+  const targets = def.targeting === Targeting.All ? livingEnemyRefs(paid) : action.targets;
+  const resolved = applyCard(paid, def, action.source, targets);
   const moved: CombatState =
     def.type === CardType.SingleUse ? exhaust(resolved, inHand) : discard(resolved, inHand);
   return withOutcome(moved);

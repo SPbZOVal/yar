@@ -52,6 +52,18 @@ export const TargetType = {
 export type TargetType = (typeof TargetType)[keyof typeof TargetType];
 
 /**
+ * How many enemies an enemy-directed card hits: a single chosen enemy (`One`) or every
+ * living enemy at once (`All` — cleave/AoE). Orthogonal to {@link TargetType}: `TargetType`
+ * says *which side* an effect lands on; `Targeting` says *how many* enemies the engine
+ * expands `Targets` into. Cards whose effects are all `Self` keep `One` (it is ignored).
+ */
+export const Targeting = {
+  One: 'one',
+  All: 'all',
+} as const;
+export type Targeting = (typeof Targeting)[keyof typeof Targeting];
+
+/**
  * Deck-level operation for a `DeckManipulation` effect.
  *  - `Draw`      — draw `value` cards (reshuffles the discard in when the draw pile empties);
  *  - `Reshuffle` — shuffle the discard back onto the draw pile;

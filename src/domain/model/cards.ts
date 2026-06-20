@@ -1,5 +1,5 @@
 /** Card data model. */
-import type { CardCategory, CardType, DeckOp, Rarity, TargetType } from './enums';
+import type { CardCategory, CardType, DeckOp, Rarity, Targeting, TargetType } from './enums';
 import type { Lifetime, StatusKind } from './status';
 
 /**
@@ -44,6 +44,8 @@ export interface CardDefinition {
   readonly cost: number;
   readonly effects: readonly Effect[];
   readonly rarity: Rarity;
+  /** Whether enemy-directed effects hit one chosen enemy (`One`) or all of them (`All`, cleave). */
+  readonly targeting: Targeting;
   /** Special cards (e.g. "+heart", "upgrade weapon") drop only after the end boss. */
   readonly isSpecial: boolean;
 }

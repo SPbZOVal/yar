@@ -6,6 +6,7 @@ import {
   Lifetime,
   Rarity,
   StatusKind,
+  Targeting,
   TargetType,
 } from '../../model';
 import type {
@@ -58,6 +59,7 @@ function card(...effects: Effect[]): CardDefinition {
     cost: 1,
     effects,
     rarity: Rarity.Common,
+    targeting: Targeting.One,
     isSpecial: false,
   };
 }
