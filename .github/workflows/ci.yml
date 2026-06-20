@@ -115,7 +115,7 @@ jobs:
 
       - name: Setup Gradle
         if: steps.app.outputs.present == 'true'
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
       # Каталог android/ в .gitignore — генерируем его из app.json перед сборкой.
       - name: Prebuild native Android project
