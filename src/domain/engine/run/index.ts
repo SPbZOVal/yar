@@ -4,7 +4,7 @@ import { CombatPhase, Lifetime, StatusKind } from '../../model';
 import type { CombatState, Entity, PlayerState, Status } from '../../model';
 import { getCardDef } from '../../registry/cardRegistry';
 import { getEnemyDef } from '../../registry/enemyRegistry';
-import { getWeaponDef } from '../../registry/weaponRegistry';
+import { getWeaponDef, upgradeWeapon } from '../../registry/weaponRegistry';
 import { getArmorDef } from '../../registry/armorRegistry';
 import { STARTER_DECK } from '../../content/starterDeck';
 import { STARTER_WEAPON_ID } from '../../content/weapons';
@@ -13,6 +13,7 @@ import { combatReducer } from '../combat';
 import type { CombatDeps } from '../combat';
 import { defaultLevelGenDeps, generateLevel } from '../level';
 import { defaultLootDeps, rollBossLoot, rollChestLoot } from '../loot';
+import { applySpecialCard } from './specialCards';
 import type { RunDeps } from './runReducer';
 
 export { runReducer } from './runReducer';
@@ -28,6 +29,8 @@ export const defaultCombatDeps = (player: PlayerState): CombatDeps => ({
   getEnemyDef,
   handSize: player.handSize,
   energyPerTurn: player.energyPerTurn,
+  // The armor's passive Block, re-granted by the reducer at the start of every player turn.
+  passiveBlock: player.armor.blockBonus,
 });
 
 /** Placeholder state for `StartCombat` — the reducer ignores it and builds combat fresh. */
@@ -86,8 +89,8 @@ function projectPlayer(player: PlayerState): Entity {
       lifetime: Lifetime.Run,
     });
   }
-  // TODO(passive-block): armor.blockBonus needs a per-turn reapply (clearBlock strips Block
-  // at the start of each turn), so it is not projected as a one-time status here.
+  // `armor.blockBonus` is NOT a one-time status here: clearBlock strips Block each turn, so the
+  // combat reducer re-grants it every player turn from `CombatDeps.passiveBlock` instead.
   return { hp: player.currentHp, baseMaxHp: player.baseMaxHp, statuses };
 }
 
@@ -112,5 +115,6 @@ export const defaultRunDeps = (): RunDeps => {
       }),
     rollChestLoot: (seed) => rollChestLoot(lootDeps, seed),
     rollBossLoot: (seed, isEndBoss) => rollBossLoot(lootDeps, seed, isEndBoss),
+    applySpecialCard: (player, def) => applySpecialCard(player, def, { upgradeWeapon }),
   };
 };

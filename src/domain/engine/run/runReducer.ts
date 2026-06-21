@@ -22,6 +22,7 @@ import { seedFrom } from '../../rng/rng';
 import type { Seed } from '../../rng/rng';
 import { CardType, CombatPhase, Cutscene } from '../../model';
 import type {
+  CardDefinition,
   CardInstance,
   Collection,
   CombatState,
@@ -71,6 +72,8 @@ export interface RunDeps {
   readonly rollChestLoot: (seed: Seed) => readonly [LootReward, Seed];
   /** Roll a boss reward; `isEndBoss` unlocks special / Boss-rarity drops. */
   readonly rollBossLoot: (seed: Seed, isEndBoss: boolean) => readonly [LootReward, Seed];
+  /** Apply a collected special card ("+heart" / weapon upgrade) to player meta-state. */
+  readonly applySpecialCard: (player: PlayerState, def: CardDefinition) => PlayerState;
 }
 
 const DECK_BUILDING: ScreenState = { name: 'deckBuilding' };
@@ -225,14 +228,17 @@ function reduceEnterNode(
 }
 
 /**
- * Route a reward into the run: permanent cards + equipment into the collection (for future
- * runs), single-use cards into the current level's bag.
+ * Route a reward into the run: special cards apply straight to player meta-state ("+heart" /
+ * weapon upgrade) and are consumed; permanent cards + equipment go to the collection (for future
+ * runs); single-use cards go to the current level's bag.
  */
-function routeReward(state: RunState, reward: LootReward): RunState {
+function routeReward(deps: RunDeps, state: RunState, reward: LootReward): RunState {
+  let player = state.player;
   let owned = state.collection.ownedCards;
   let bag = state.singleUseBag;
   for (const def of reward.cards) {
-    if (def.type === CardType.Permanent) owned = addOwnedCard(owned, def.id);
+    if (def.isSpecial) player = deps.applySpecialCard(player, def);
+    else if (def.type === CardType.Permanent) owned = addOwnedCard(owned, def.id);
     else bag = [...bag, def.id];
   }
   const ownedWeapons =
@@ -245,18 +251,19 @@ function routeReward(state: RunState, reward: LootReward): RunState {
       : [...state.collection.ownedArmor, reward.armor];
   return {
     ...state,
+    player,
     singleUseBag: bag,
     collection: { ...state.collection, ownedCards: owned, ownedWeapons, ownedArmor },
   };
 }
 
 function reduceCollectLoot(
-  _deps: RunDeps,
+  deps: RunDeps,
   state: RunState,
   action: Extract<RunAction, { type: 'CollectLoot' }>,
 ): RunState {
   // Collect the chest, then return to the level map (loot-node flow).
-  return { ...routeReward(state, action.reward), screen: { name: 'level' } };
+  return { ...routeReward(deps, state, action.reward), screen: { name: 'level' } };
 }
 
 /**
@@ -264,7 +271,7 @@ function reduceCollectLoot(
  * wrong one yields nothing. Either way navigation resumes. No-op off a question node.
  */
 function reduceAnswerQuestion(
-  _deps: RunDeps,
+  deps: RunDeps,
   state: RunState,
   action: Extract<RunAction, { type: 'AnswerQuestion' }>,
 ): RunState {
@@ -274,7 +281,7 @@ function reduceAnswerQuestion(
   if (content?.kind !== 'question') return state;
   const base: RunState = { ...state, screen: { name: 'level' } };
   return action.answerIndex === content.question.correctIndex
-    ? routeReward(base, content.question.rewardOnCorrect)
+    ? routeReward(deps, base, content.question.rewardOnCorrect)
     : base;
 }
 
@@ -297,9 +304,9 @@ function awardCombatLoot(deps: RunDeps, state: RunState): RunState {
   if (level === null) return state; // HP-only resolve (no active level): nothing to roll
   const content = level.nodes.get(level.currentNodeId)?.content;
   const seed = seedFrom(`${state.seed}:loot:${level.currentNodeId}`);
-  if (content?.kind === 'combat') return routeReward(state, deps.rollChestLoot(seed)[0]);
+  if (content?.kind === 'combat') return routeReward(deps, state, deps.rollChestLoot(seed)[0]);
   if (content?.kind === 'boss')
-    return routeReward(state, deps.rollBossLoot(seed, content.specialLoot)[0]);
+    return routeReward(deps, state, deps.rollBossLoot(seed, content.specialLoot)[0]);
   return state;
 }
 

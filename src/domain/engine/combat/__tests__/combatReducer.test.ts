@@ -2,6 +2,7 @@ import {
   CardCategory,
   CardType,
   CombatPhase,
+  DeckOp,
   Lifetime,
   Rarity,
   StatusKind,
@@ -57,6 +58,10 @@ const STRIKE = card('strike', CardType.Permanent, 1, [damage(6)]);
 const BOMB = card('bomb', CardType.SingleUse, 1, [damage(8)]);
 // An AoE (cleave) card: one Targets effect, but `targeting: All` makes the engine fan it out.
 const CLEAVE = card('cleave', CardType.Permanent, 1, [damage(4)], Targeting.All);
+// An interactive scry card: reveal the top 3 for a player-driven selection.
+const SCRY = card('scry', CardType.Permanent, 0, [
+  { kind: 'DeckManipulation', op: DeckOp.Scry, value: 3 },
+]);
 const BASHER: EnemyDefinition = {
   id: 'basher',
   name: 'Basher',
@@ -68,7 +73,12 @@ const BASHER: EnemyDefinition = {
   ],
 };
 
-const CARDS: Record<string, CardDefinition> = { strike: STRIKE, bomb: BOMB, cleave: CLEAVE };
+const CARDS: Record<string, CardDefinition> = {
+  strike: STRIKE,
+  bomb: BOMB,
+  cleave: CLEAVE,
+  scry: SCRY,
+};
 const ENEMIES: Record<string, EnemyDefinition> = { basher: BASHER };
 
 const deps: CombatDeps = {
@@ -84,7 +94,11 @@ const deps: CombatDeps = {
   },
   handSize: 3,
   energyPerTurn: 3,
+  passiveBlock: 0,
 };
+
+/** A deps variant that grants passive armor block each turn (e.g. an equipped leather armor). */
+const depsWithBlock: CombatDeps = { ...deps, passiveBlock: 2 };
 
 // --- Test helpers ------------------------------------------------------------
 
@@ -311,6 +325,84 @@ describe('EndTurn', () => {
   it('is a no-op off the player turn (same reference)', () => {
     const off = playable({ phase: CombatPhase.Victory });
     expect(combatReducer(deps, off, END_TURN)).toBe(off);
+  });
+});
+
+// --- Passive armor block -----------------------------------------------------
+
+describe('passive armor block', () => {
+  const start: CombatAction = {
+    type: 'StartCombat',
+    player: player(),
+    enemies: [BASHER],
+    deck: [inst('c1', 'strike'), inst('c2', 'strike'), inst('c3', 'strike')],
+    seed: seedFrom('block'),
+  };
+
+  it('grants the armor block on turn 1 at StartCombat', () => {
+    expect(block(combatReducer(depsWithBlock, emptyState(), start).player)).toBe(2);
+    expect(block(combatReducer(deps, emptyState(), start).player)).toBe(0); // none without armor
+  });
+
+  it('re-grants the armor block each player turn after clearing the old block', () => {
+    // Start the turn with 5 Block already up; EndTurn resets it, then re-grants the passive 2.
+    const st = playable({
+      energy: 1,
+      hand: [inst('h1', 'strike')],
+      player: player(50, [{ kind: StatusKind.Block, stacks: 5, lifetime: Lifetime.Fight }]),
+    });
+    expect(block(combatReducer(depsWithBlock, st, END_TURN).player)).toBe(2);
+  });
+});
+
+// --- Scry / ResolveSelection -------------------------------------------------
+
+describe('Scry / ResolveSelection', () => {
+  const scryState = (): CombatState =>
+    playable({
+      energy: 1,
+      hand: [inst('hs', 'scry')],
+      drawPile: [
+        inst('d1', 'strike'),
+        inst('d2', 'bomb'),
+        inst('d3', 'strike'),
+        inst('d4', 'strike'),
+      ],
+    });
+  const PLAY_SCRY: CombatAction = {
+    type: 'PlayCard',
+    instanceId: 'hs',
+    source: { side: 'player' },
+    targets: [],
+  };
+
+  it('playing a Scry card parks the top N as a pending selection without moving them', () => {
+    const s = combatReducer(deps, scryState(), PLAY_SCRY);
+    expect(s.pendingSelection).toEqual({ candidateIds: ['d1', 'd2', 'd3'], pick: 3 });
+    expect(s.drawPile.map((c) => c.instanceId)).toEqual(['d1', 'd2', 'd3', 'd4']); // unmoved
+    expect(s.hand.map((c) => c.instanceId)).toEqual([]); // scry card left hand
+    expect(s.discardPile.map((c) => c.instanceId)).toEqual(['hs']); // ...to discard (Permanent)
+  });
+
+  it('ResolveSelection takes the chosen revealed cards to hand and discards the rest', () => {
+    const pending = combatReducer(deps, scryState(), PLAY_SCRY);
+    const s = combatReducer(deps, pending, { type: 'ResolveSelection', instanceIds: ['d1', 'd3'] });
+    expect(s.pendingSelection).toBeUndefined();
+    expect(s.hand.map((c) => c.instanceId)).toEqual(['d1', 'd3']);
+    expect(s.drawPile.map((c) => c.instanceId)).toEqual(['d4']); // top 3 consumed
+    expect(s.discardPile.map((c) => c.instanceId)).toEqual(['hs', 'd2']); // unchosen milled
+  });
+
+  it('blocks PlayCard and EndTurn while a selection is pending (same reference)', () => {
+    // A would-be-playable hand card (h1 affordable) must still be blocked by the pending guard.
+    const pending = playable({ pendingSelection: { candidateIds: ['x'], pick: 1 } });
+    expect(combatReducer(deps, pending, PLAY_H1)).toBe(pending);
+    expect(combatReducer(deps, pending, END_TURN)).toBe(pending);
+  });
+
+  it('ResolveSelection is a no-op when nothing is pending (same reference)', () => {
+    const st = playable();
+    expect(combatReducer(deps, st, { type: 'ResolveSelection', instanceIds: [] })).toBe(st);
   });
 });
 

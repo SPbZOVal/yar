@@ -137,6 +137,8 @@ export function CombatScreen() {
   const dispatchCombat = useGameStore((s) => s.dispatchCombat);
   const dispatch = useGameStore((s) => s.dispatch);
   const [selectedCard, setSelectedCard] = useState<string | null>(null);
+  // Cards toggled in the scry selection overlay (combat.pendingSelection).
+  const [picks, setPicks] = useState<readonly string[]>([]);
 
   if (combat === null) return <SafeAreaView style={styles.container} />;
 
@@ -168,6 +170,15 @@ export function CombatScreen() {
   };
 
   const isOver = combat.phase === CombatPhase.Victory || combat.phase === CombatPhase.Defeat;
+  const pending = combat.pendingSelection;
+
+  // Toggle a candidate in/out of the scry pick set.
+  const togglePick = (id: string): void =>
+    setPicks((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  const confirmSelection = (): void => {
+    dispatchCombat({ type: 'ResolveSelection', instanceIds: picks });
+    setPicks([]);
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -275,6 +286,32 @@ export function CombatScreen() {
           />
         </View>
       )}
+
+      {/* Interactive scry: choose which revealed cards to take into hand. */}
+      {pending !== undefined && (
+        <View style={styles.overlay}>
+          <Text style={styles.selectTitle}>Выберите карты в руку</Text>
+          <View style={styles.selectRow}>
+            {pending.candidateIds.map((id) => {
+              const inst = combat.drawPile.find((c) => c.instanceId === id);
+              const name = inst ? getCardDef(inst.defId).name : id;
+              return (
+                <Pressable
+                  key={id}
+                  testID={`select-${id}`}
+                  onPress={() => togglePick(id)}
+                  style={[styles.selectCard, picks.includes(id) && styles.cardSelected]}
+                >
+                  <Text style={styles.cardName} numberOfLines={3}>
+                    {name}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Button testID="confirm-selection" label="Готово" onPress={confirmSelection} />
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -304,5 +341,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.7)',
+  },
+  selectTitle: { color: colors.text, fontSize: 16, marginBottom: PAD },
+  selectRow: { flexDirection: 'row', gap: PAD, marginBottom: PAD },
+  selectCard: {
+    width: CARD_W,
+    height: CARD_H,
+    borderRadius: 10,
+    backgroundColor: colors.surface,
+    padding: 8,
+    justifyContent: 'center',
   },
 });

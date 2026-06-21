@@ -56,6 +56,15 @@ describe('deckOpRegistry', () => {
     expect(ids(s.drawPile)).toEqual(['b']);
   });
 
+  it('Scry parks the top of the draw pile as a pending selection without moving it', () => {
+    const s = getDeckOpHandler(DeckOp.Scry)(
+      state({ drawPile: [card('a'), card('b'), card('c')] }),
+      2,
+    );
+    expect(s.pendingSelection).toEqual({ candidateIds: ['a', 'b'], pick: 2 });
+    expect(ids(s.drawPile)).toEqual(['a', 'b', 'c']); // unmoved
+  });
+
   it('DECK_OP_HANDLERS is keyed by the exact DeckOp union', () => {
     expect(Object.keys(DECK_OP_HANDLERS).sort()).toEqual(Object.values(DeckOp).sort());
   });

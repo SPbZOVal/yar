@@ -23,6 +23,8 @@ export {
   draw,
   discard,
   exhaust,
+  scry,
+  resolveSelection,
   reshuffleDiscardIntoDraw,
   resetPermanentDeck,
 } from './deck/deckManager';

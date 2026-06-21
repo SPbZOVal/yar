@@ -67,4 +67,25 @@ describe('CombatScreen', () => {
     await press('resolve-combat');
     expect(store.getState().run.combat).toBeNull();
   });
+
+  it('resolves an interactive scry: chosen revealed card goes to hand, the rest are discarded', async () => {
+    const store = withCombat(
+      combat({
+        hand: [],
+        drawPile: [
+          { instanceId: 'd1', defId: 'strike', upgraded: false },
+          { instanceId: 'd2', defId: 'defend', upgraded: false },
+          { instanceId: 'd3', defId: 'strike', upgraded: false },
+        ],
+        pendingSelection: { candidateIds: ['d1', 'd2', 'd3'], pick: 3 },
+      }),
+    );
+    await renderWithStore(<CombatScreen />, store);
+    await press('select-d2'); // keep d2
+    await press('confirm-selection');
+    const c = store.getState().run.combat;
+    expect(c?.pendingSelection).toBeUndefined();
+    expect(c?.hand.map((x) => x.instanceId)).toEqual(['d2']);
+    expect(c?.discardPile.map((x) => x.instanceId)).toEqual(['d1', 'd3']);
+  });
 });

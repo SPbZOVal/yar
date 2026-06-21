@@ -42,6 +42,7 @@ export type {
   EnemyInstance,
   CombatState,
   CombatantRef,
+  PendingSelection,
 } from './combat';
 export type {
   LootReward,
