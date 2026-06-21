@@ -6,6 +6,7 @@ export {
   CardCategory,
   EffectKind,
   TargetType,
+  Targeting,
   DeckOp,
   Rarity,
   NodeType,

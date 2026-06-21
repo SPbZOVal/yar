@@ -3,7 +3,16 @@
  * `satisfies readonly CardDefinition[]` validates every `status`/`op`/`target` against
  * the model unions at compile time, so a typo'd kind fails the build.
  */
-import { CardCategory, CardType, DeckOp, Lifetime, Rarity, StatusKind, TargetType } from '../model';
+import {
+  CardCategory,
+  CardType,
+  DeckOp,
+  Lifetime,
+  Rarity,
+  StatusKind,
+  Targeting,
+  TargetType,
+} from '../model';
 import type { CardDefinition } from '../model';
 
 export const CARDS = [
@@ -15,6 +24,7 @@ export const CARDS = [
     category: CardCategory.Attack,
     cost: 1,
     rarity: Rarity.Common,
+    targeting: Targeting.One,
     isSpecial: false,
     effects: [
       {
@@ -34,6 +44,7 @@ export const CARDS = [
     category: CardCategory.Stats,
     cost: 1,
     rarity: Rarity.Common,
+    targeting: Targeting.One,
     isSpecial: false,
     effects: [
       {
@@ -48,11 +59,12 @@ export const CARDS = [
   {
     id: 'cleave',
     name: 'Cleave',
-    description: 'Deal 4 damage to all targets.',
+    description: 'Deal 4 damage to all enemies.',
     type: CardType.Permanent,
     category: CardCategory.Attack,
     cost: 1,
     rarity: Rarity.Common,
+    targeting: Targeting.All,
     isSpecial: false,
     effects: [
       {
@@ -72,6 +84,7 @@ export const CARDS = [
     category: CardCategory.Control,
     cost: 1,
     rarity: Rarity.Uncommon,
+    targeting: Targeting.One,
     isSpecial: false,
     effects: [
       {
@@ -92,6 +105,7 @@ export const CARDS = [
     category: CardCategory.DeckManipulation,
     cost: 1,
     rarity: Rarity.Uncommon,
+    targeting: Targeting.One,
     isSpecial: false,
     effects: [{ kind: 'DeckManipulation', op: DeckOp.Draw, value: 2 }],
   },

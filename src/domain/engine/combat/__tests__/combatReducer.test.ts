@@ -5,6 +5,7 @@ import {
   Lifetime,
   Rarity,
   StatusKind,
+  Targeting,
   TargetType,
 } from '../../../model';
 import type {
@@ -31,7 +32,13 @@ const damage = (value: number): Effect => ({
   lifetime: Lifetime.Instant,
 });
 
-function card(id: string, type: CardType, cost: number, effects: Effect[]): CardDefinition {
+function card(
+  id: string,
+  type: CardType,
+  cost: number,
+  effects: Effect[],
+  targeting: Targeting = Targeting.One,
+): CardDefinition {
   return {
     id,
     name: id,
@@ -41,12 +48,15 @@ function card(id: string, type: CardType, cost: number, effects: Effect[]): Card
     cost,
     effects,
     rarity: Rarity.Common,
+    targeting,
     isSpecial: false,
   };
 }
 
 const STRIKE = card('strike', CardType.Permanent, 1, [damage(6)]);
 const BOMB = card('bomb', CardType.SingleUse, 1, [damage(8)]);
+// An AoE (cleave) card: one Targets effect, but `targeting: All` makes the engine fan it out.
+const CLEAVE = card('cleave', CardType.Permanent, 1, [damage(4)], Targeting.All);
 const BASHER: EnemyDefinition = {
   id: 'basher',
   name: 'Basher',
@@ -58,7 +68,7 @@ const BASHER: EnemyDefinition = {
   ],
 };
 
-const CARDS: Record<string, CardDefinition> = { strike: STRIKE, bomb: BOMB };
+const CARDS: Record<string, CardDefinition> = { strike: STRIKE, bomb: BOMB, cleave: CLEAVE };
 const ENEMIES: Record<string, EnemyDefinition> = { basher: BASHER };
 
 const deps: CombatDeps = {
@@ -206,6 +216,71 @@ describe('PlayCard', () => {
 
     const broke = playable({ energy: 0 });
     expect(combatReducer(deps, broke, PLAY_H1)).toBe(broke);
+  });
+});
+
+// --- PlayCard targeting (One vs All) -----------------------------------------
+
+describe('PlayCard targeting', () => {
+  const twoEnemies = [
+    { entity: { hp: 20, baseMaxHp: 20, statuses: [] }, defId: 'basher', currentIntentIndex: 0 },
+    { entity: { hp: 18, baseMaxHp: 20, statuses: [] }, defId: 'basher', currentIntentIndex: 0 },
+  ];
+  const playCleave: CombatAction = {
+    type: 'PlayCard',
+    instanceId: 'hc',
+    source: { side: 'player' },
+    targets: [], // the UI passes no target for an AoE card; the engine fans it out
+  };
+
+  it('an All card cleaves every living enemy in one play, paying the cost once', () => {
+    const s = combatReducer(
+      deps,
+      playable({ enemies: twoEnemies, hand: [inst('hc', 'cleave')], energy: 3 }),
+      playCleave,
+    );
+    expect(s.enemies.map((e) => e.entity.hp)).toEqual([16, 14]); // both took 4
+    expect(s.energy).toBe(2); // cost 1 paid once, not per enemy
+    expect(s.discardPile.map((c) => c.instanceId)).toEqual(['hc']);
+  });
+
+  it('an All card skips a dead enemy (hp 0)', () => {
+    const s = combatReducer(
+      deps,
+      playable({
+        enemies: [
+          {
+            entity: { hp: 0, baseMaxHp: 20, statuses: [] },
+            defId: 'basher',
+            currentIntentIndex: 0,
+          },
+          {
+            entity: { hp: 20, baseMaxHp: 20, statuses: [] },
+            defId: 'basher',
+            currentIntentIndex: 0,
+          },
+        ],
+        hand: [inst('hc', 'cleave')],
+      }),
+      playCleave,
+    );
+    expect(s.enemies.map((e) => e.entity.hp)).toEqual([0, 16]); // dead untouched, living took 4
+  });
+
+  it('ignores a stale single target on an All card and still hits all enemies', () => {
+    const s = combatReducer(deps, playable({ enemies: twoEnemies, hand: [inst('hc', 'cleave')] }), {
+      ...playCleave,
+      targets: [{ side: 'enemy', index: 0 }],
+    });
+    expect(s.enemies.map((e) => e.entity.hp)).toEqual([16, 14]); // both, not just index 0
+  });
+
+  it('a One card hits only the chosen target, leaving other enemies unharmed', () => {
+    const s = combatReducer(deps, playable({ enemies: twoEnemies, hand: [inst('h1', 'strike')] }), {
+      ...PLAY_H1,
+      targets: [{ side: 'enemy', index: 1 }],
+    });
+    expect(s.enemies.map((e) => e.entity.hp)).toEqual([20, 12]); // only index 1 took 6
   });
 });
 

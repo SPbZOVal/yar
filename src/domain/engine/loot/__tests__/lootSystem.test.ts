@@ -1,4 +1,4 @@
-import { CardCategory, CardType, Rarity } from '../../../model';
+import { CardCategory, CardType, Rarity, Targeting } from '../../../model';
 import type { Armor, CardDefinition, Weapon } from '../../../model';
 import { seedFrom } from '../../../rng/rng';
 import { rollBossLoot, rollChestLoot, rollQuestion } from '../lootSystem';
@@ -20,6 +20,7 @@ function card(
     cost: 1,
     effects: [],
     rarity,
+    targeting: Targeting.One,
     isSpecial: opts.isSpecial ?? false,
   };
 }

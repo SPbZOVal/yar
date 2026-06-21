@@ -52,6 +52,7 @@ function makeDef(type: CardType): CardDefinition {
     cost: 1,
     effects: [],
     rarity: 'Common',
+    targeting: 'one',
     isSpecial: false,
   };
 }

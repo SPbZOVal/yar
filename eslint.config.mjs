@@ -10,7 +10,15 @@ import eslintConfigPrettier from 'eslint-config-prettier';
 export default tseslint.config(
   {
     // Source lives under src/; tooling config files (jest/eslint/prettier) are not linted.
-    ignores: ['node_modules', 'coverage', 'dist', '*.config.*', 'jest.config.cjs', 'jest.setup.*'],
+    ignores: [
+      'node_modules',
+      'coverage',
+      'dist',
+      '*.config.*',
+      'jest.config.cjs',
+      'jest.setup.*',
+      'jest.resolver.*',
+    ],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,

@@ -24,6 +24,8 @@ const ui = {
   displayName: 'ui',
   testMatch: ['<rootDir>/src/ui/**/*.test.tsx'],
   transformIgnorePatterns: uiTransformIgnore,
+  // Resolve react-native-worklets to its non-native files so Reanimated 4 loads under jest.
+  resolver: '<rootDir>/jest.resolver.ui.cjs',
   // setupFilesAfterEnv (not setupFiles) so jest-expo's own RN setup is preserved.
   setupFilesAfterEnv: [...(expo.setupFilesAfterEnv ?? []), '<rootDir>/jest.setup.ui.js'],
   // The screens load domain/store/persistence code, so without this the ui project

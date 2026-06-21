@@ -32,6 +32,22 @@ describe('CombatScreen', () => {
     expect(store.getState().run.combat?.enemies[0]?.entity.hp).toBe(2);
   });
 
+  it('plays an AoE card on every enemy from a tap, no enemy target (cleave → 4 each)', async () => {
+    const store = withCombat(
+      combat({
+        hand: [{ instanceId: 'cc', defId: 'cleave', upgraded: false }],
+        enemies: [
+          { entity: { hp: 8, baseMaxHp: 8, statuses: [] }, defId: 'bat', currentIntentIndex: 0 },
+          { entity: { hp: 8, baseMaxHp: 8, statuses: [] }, defId: 'bat', currentIntentIndex: 0 },
+        ],
+      }),
+    );
+    await renderWithStore(<CombatScreen />, store);
+    await press('card-cc'); // AoE card plays immediately — no enemy tap
+    const hps = store.getState().run.combat?.enemies.map((e) => e.entity.hp);
+    expect(hps).toEqual([4, 4]); // the engine fanned the cleave out to both
+  });
+
   it('ends the turn', async () => {
     const store = withCombat(combat());
     await renderWithStore(<CombatScreen />, store);
