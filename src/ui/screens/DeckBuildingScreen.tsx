@@ -45,6 +45,7 @@ export function DeckBuildingScreen() {
           const on = selected.includes(item.instanceId);
           return (
             <Pressable
+              testID={`card-${item.instanceId}`}
               style={[styles.card, on && styles.cardOn]}
               onPress={() => toggle(item.instanceId)}
             >
@@ -79,6 +80,7 @@ export function DeckBuildingScreen() {
       ))}
 
       <Pressable
+        testID="go"
         style={[styles.button, selected.length === 0 && styles.buttonDisabled]}
         disabled={selected.length === 0}
         onPress={start}

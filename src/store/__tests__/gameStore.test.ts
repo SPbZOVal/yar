@@ -10,9 +10,10 @@ const mkStore = () => {
 };
 
 describe('createGameStore', () => {
-  it('boots into deck-building with the starter collection', () => {
+  it('boots into the intro cutscene with the starter collection', () => {
     const s = mkStore().store.getState();
-    expect(s.run.screen.name).toBe('deckBuilding');
+    expect(s.run.screen.name).toBe('cutscene');
+    expect(s.run.screen.cutscene).toBe('intro');
     expect(s.run.collection.ownedCards.length).toBe(STARTER_DECK.length);
   });
 

@@ -3,7 +3,7 @@
     "name": "Yar",
     "slug": "yar",
     "version": "0.0.0",
-    "orientation": "portrait",
+    "orientation": "landscape",
     "platforms": ["android"],
     "android": {
       "package": "com.spbzoval.yar"

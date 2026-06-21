@@ -3,6 +3,7 @@ import { useGameStore } from '../store/GameStoreContext';
 import { DeckBuildingScreen } from './DeckBuildingScreen';
 import { LevelMapScreen } from './LevelMapScreen';
 import { CombatScreen } from './CombatScreen';
+import { CutsceneScreen } from './CutsceneScreen';
 import { LootScreen } from './LootScreen';
 import { QuestionScreen } from './QuestionScreen';
 import { LevelClearedScreen } from './LevelClearedScreen';
@@ -16,6 +17,8 @@ export function GameScreen() {
   const screen = useGameStore(selectScreen);
 
   switch (screen) {
+    case 'cutscene':
+      return <CutsceneScreen />;
     case 'deckBuilding':
       return <DeckBuildingScreen />;
     case 'combat':

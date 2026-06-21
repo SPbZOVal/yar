@@ -45,6 +45,7 @@ describe('QuestionScreen', () => {
     const store = withQuestion();
     const before = store.getState().run.collection.ownedCards.length;
     await renderWithStore(<QuestionScreen />, store);
+    await press('vn-box'); // reveal the riddle; the answer choices then appear
     await press('answer-0');
     expect(store.getState().run.collection.ownedCards.length).toBe(before + 1);
     expect(store.getState().run.screen.name).toBe('level');
@@ -54,6 +55,7 @@ describe('QuestionScreen', () => {
     const store = withQuestion();
     const before = store.getState().run.collection.ownedCards.length;
     await renderWithStore(<QuestionScreen />, store);
+    await press('vn-box');
     await press('answer-1');
     expect(store.getState().run.collection.ownedCards.length).toBe(before);
     expect(store.getState().run.screen.name).toBe('level');
