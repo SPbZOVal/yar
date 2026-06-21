@@ -1,5 +1,13 @@
-import { useState } from 'react';
-import { View, Pressable, Text, StyleSheet, useWindowDimensions } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import {
+  View,
+  Pressable,
+  Text,
+  StyleSheet,
+  useWindowDimensions,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   Canvas,
@@ -13,6 +21,8 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
+  withSequence,
+  withTiming,
   runOnJS,
 } from 'react-native-reanimated';
 import { CombatPhase, Targeting, TargetType } from '../../domain/model';
@@ -126,10 +136,73 @@ function DraggableCard({
 }
 
 /**
+ * A red pulse that fires whenever `hp` drops between renders — the combat hit-flash. Rendered as a
+ * touch-transparent RN overlay above the Skia canvas (Skia props can't be driven by Reanimated
+ * here, and the jest mocks make these no-ops), positioned by the caller's `style` box. Tracks the
+ * previous hp in a ref so a lethal hit (hp → 0) still flashes. Animation timing is verified
+ * on-device; under jest the mock collapses the sequence to opacity 0 (nothing to assert).
+ */
+function HitFlash({
+  hp,
+  style,
+  color = colors.hp,
+  testID,
+}: {
+  readonly hp: number;
+  readonly style: StyleProp<ViewStyle>;
+  readonly color?: string;
+  readonly testID?: string;
+}) {
+  const prev = useRef(hp);
+  const opacity = useSharedValue(0);
+  useEffect(() => {
+    if (hp < prev.current) {
+      opacity.value = withSequence(
+        withTiming(0.55, { duration: 90 }),
+        withTiming(0, { duration: 240 }),
+      );
+    }
+    prev.current = hp;
+  }, [hp, opacity]);
+  const aStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  return (
+    <Animated.View
+      pointerEvents="none"
+      testID={testID}
+      style={[styles.flash, { backgroundColor: color }, style, aStyle]}
+    />
+  );
+}
+
+/** A full-screen red wash that pulses when the player loses HP (the "you got hit" feedback). */
+function ScreenHurtFlash({ hp }: { readonly hp: number }) {
+  const prev = useRef(hp);
+  const opacity = useSharedValue(0);
+  useEffect(() => {
+    if (hp < prev.current) {
+      opacity.value = withSequence(
+        withTiming(0.3, { duration: 110 }),
+        withTiming(0, { duration: 320 }),
+      );
+    }
+    prev.current = hp;
+  }, [hp, opacity]);
+  const aStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  return (
+    <Animated.View
+      pointerEvents="none"
+      testID="flash-player"
+      style={[StyleSheet.absoluteFill, styles.hurt, aStyle]}
+    />
+  );
+}
+
+/**
  * Combat board: enemies/player drawn in Skia, the hand as draggable RN cards over it. A card is
  * played by dragging it onto an enemy (single-target) or anywhere above the hand (AoE/self), or by
  * tapping — tap an AoE/self card to play it, or tap a single-target card then tap an enemy. End
- * Turn → `EndTurn`; on a terminal phase, Continue → `ResolveCombat`.
+ * Turn → `EndTurn`; on a terminal phase, Continue → `ResolveCombat`. Damage is flashed by
+ * `HitFlash` (per enemy) and `ScreenHurtFlash` (player) overlays.
  */
 export function CombatScreen() {
   const { height } = useWindowDimensions();
@@ -231,6 +304,19 @@ export function CombatScreen() {
           color={colors.text}
         />
       </Canvas>
+
+      {/* Damage hit-flash overlays (cosmetic; mapped over ALL enemies so a lethal hit flashes too) */}
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        {combat.enemies.map((enemy, i) => (
+          <HitFlash
+            key={i}
+            hp={enemy.entity.hp}
+            testID={`flash-enemy-${i}`}
+            style={{ left: enemyX(i), top: ENEMY_Y, width: ENEMY_W, height: ENEMY_H }}
+          />
+        ))}
+      </View>
+      <ScreenHurtFlash hp={player.hp} />
 
       {/* Enemy touch targets (tap-to-target fallback for the select-then-tap flow) */}
       <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
@@ -342,6 +428,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.7)',
   },
+  flash: { position: 'absolute', borderRadius: 8 },
+  hurt: { backgroundColor: colors.danger },
   selectTitle: { color: colors.text, fontSize: 16, marginBottom: PAD },
   selectRow: { flexDirection: 'row', gap: PAD, marginBottom: PAD },
   selectCard: {

@@ -1,3 +1,4 @@
+import { screen } from '@testing-library/react-native';
 import { CombatPhase } from '../../../domain/model';
 import type { CombatState } from '../../../domain/model';
 import { CombatScreen } from '../CombatScreen';
@@ -87,5 +88,17 @@ describe('CombatScreen', () => {
     expect(c?.pendingSelection).toBeUndefined();
     expect(c?.hand.map((x) => x.instanceId)).toEqual(['d2']);
     expect(c?.discardPile.map((x) => x.instanceId)).toEqual(['d1', 'd3']);
+  });
+
+  // The flashes are no-op overlays under the jest mocks (timing verified on-device); this just
+  // asserts they mount and the damage path still resolves through them.
+  it('renders damage hit-flash overlays and still plays a damaging card through them', async () => {
+    const store = withCombat(combat());
+    await renderWithStore(<CombatScreen />, store);
+    expect(screen.getByTestId('flash-player')).toBeTruthy();
+    expect(screen.getByTestId('flash-enemy-0')).toBeTruthy();
+    await press('card-c1');
+    await press('enemy-0');
+    expect(store.getState().run.combat?.enemies[0]?.entity.hp).toBe(2); // 8 - 6, overlay didn't block
   });
 });
