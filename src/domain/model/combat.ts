@@ -72,9 +72,24 @@ export interface CombatState {
   readonly phase: CombatPhase;
   /** Immutable RNG cursor; deck shuffles/draws thread it so a combat replays exactly. */
   readonly rng: Seed;
+  /** Present only mid-scry: a parked card selection awaiting a `ResolveSelection` action. */
+  readonly pendingSelection?: PendingSelection;
 }
 
 /** Addresses a combatant inside a {@link CombatState}: the player, or an enemy by index. */
 export type CombatantRef =
   | { readonly side: 'player' }
   | { readonly side: 'enemy'; readonly index: number };
+
+/**
+ * A paused, player-driven card selection (interactive scry). A `DeckOp.Scry` effect reveals
+ * the top {@link candidateIds} of the draw pile without moving them and parks them here; the
+ * combat then waits for a `ResolveSelection` action naming which of them to take. While this is
+ * present, `PlayCard`/`EndTurn` are blocked — the player must resolve the selection first.
+ */
+export interface PendingSelection {
+  /** Instance ids revealed off the top of the draw pile, in draw order. */
+  readonly candidateIds: readonly string[];
+  /** Upper bound on how many candidates the player may take into hand (the rest are discarded). */
+  readonly pick: number;
+}

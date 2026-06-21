@@ -109,4 +109,59 @@ export const CARDS = [
     isSpecial: false,
     effects: [{ kind: 'DeckManipulation', op: DeckOp.Draw, value: 2 }],
   },
+  {
+    // Interactive scry: reveal the top 3 and let the player choose which to draw (see DeckOp.Scry).
+    id: 'scout',
+    name: 'Scout',
+    description: 'Look at the top 3 cards; take any into your hand, discard the rest.',
+    type: CardType.Permanent,
+    category: CardCategory.DeckManipulation,
+    cost: 1,
+    rarity: Rarity.Uncommon,
+    targeting: Targeting.One,
+    isSpecial: false,
+    effects: [{ kind: 'DeckManipulation', op: DeckOp.Scry, value: 3 }],
+  },
+  {
+    // Special "+heart": collected after the end boss, applied to player meta (not a deck card).
+    id: 'heart',
+    name: 'Heart',
+    description: 'Gain +5 max HP (and heal that much).',
+    type: CardType.SingleUse,
+    category: CardCategory.Special,
+    cost: 0,
+    rarity: Rarity.Boss,
+    targeting: Targeting.One,
+    isSpecial: true,
+    effects: [
+      {
+        kind: 'ApplyStatus',
+        value: 5, // = BALANCE_CONSTANTS.specialHeartBonus
+        target: TargetType.Self,
+        status: StatusKind.MaxHpUp,
+        lifetime: Lifetime.Permanent,
+      },
+    ],
+  },
+  {
+    // Special "upgrade weapon": steps the equipped weapon up one tier on collection.
+    id: 'whetstone',
+    name: 'Whetstone',
+    description: 'Upgrade your weapon by one tier.',
+    type: CardType.SingleUse,
+    category: CardCategory.Special,
+    cost: 0,
+    rarity: Rarity.Boss,
+    targeting: Targeting.One,
+    isSpecial: true,
+    effects: [
+      {
+        kind: 'ApplyStatus',
+        value: 1,
+        target: TargetType.Self,
+        status: StatusKind.WeaponTier,
+        lifetime: Lifetime.Life,
+      },
+    ],
+  },
 ] satisfies readonly CardDefinition[];

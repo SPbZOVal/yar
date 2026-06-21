@@ -24,4 +24,17 @@ export interface EndTurnAction {
   readonly type: 'EndTurn';
 }
 
-export type CombatAction = StartCombatAction | PlayCardAction | EndTurnAction;
+/**
+ * Resolve a parked scry (`CombatState.pendingSelection`): `instanceIds` names which revealed
+ * candidates to take into hand; the rest are discarded. No-op when nothing is pending.
+ */
+export interface ResolveSelectionAction {
+  readonly type: 'ResolveSelection';
+  readonly instanceIds: readonly string[];
+}
+
+export type CombatAction =
+  | StartCombatAction
+  | PlayCardAction
+  | EndTurnAction
+  | ResolveSelectionAction;

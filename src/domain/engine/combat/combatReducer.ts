@@ -16,8 +16,8 @@ import type {
   Status,
 } from '../../model';
 import { Rand } from '../../rng/rng';
-import { clearBlock, tickStatuses } from '../../entity/entity';
-import { discard, draw, exhaust } from '../../deck/deckManager';
+import { clearBlock, gainBlock, tickStatuses } from '../../entity/entity';
+import { discard, draw, exhaust, resolveSelection } from '../../deck/deckManager';
 import { applyCard } from '../../cardResolver/cardResolver';
 import type { CombatAction } from './actions';
 import { withOutcome } from './selectors';
@@ -29,6 +29,8 @@ export interface CombatDeps {
   readonly getEnemyDef: (defId: string) => EnemyDefinition;
   readonly handSize: number;
   readonly energyPerTurn: number;
+  /** Passive Block re-granted at the start of every player turn (the equipped armor's blockBonus). */
+  readonly passiveBlock: number;
 }
 
 /** Every living enemy as a {@link CombatantRef} — the recipients an `All` (cleave) card hits. */
@@ -55,7 +57,8 @@ function reduceStartCombat(
 ): CombatState {
   const [drawPile, rng] = Rand.run(Rand.shuffle(action.deck), action.seed);
   const base: CombatState = {
-    player: action.player,
+    // Turn 1 starts with the armor's passive Block already up (re-granted each turn below).
+    player: gainBlock(action.player, deps.passiveBlock),
     enemies: action.enemies.map(instantiate),
     drawPile,
     hand: [],
@@ -75,6 +78,8 @@ function reducePlayCard(
   action: Extract<CombatAction, { type: 'PlayCard' }>,
 ): CombatState {
   if (state.phase !== CombatPhase.PlayerTurn) return state;
+  // A parked scry must be resolved before any other card play.
+  if (state.pendingSelection !== undefined) return state;
   const inHand = state.hand.find((c) => c.instanceId === action.instanceId);
   if (inHand === undefined) return state;
   const def = deps.getDef(inHand.defId);
@@ -101,6 +106,8 @@ function tickAll(state: CombatState): CombatState {
 
 function reduceEndTurn(deps: CombatDeps, state: CombatState): CombatState {
   if (state.phase !== CombatPhase.PlayerTurn) return state;
+  // A parked scry must be resolved before the turn can end.
+  if (state.pendingSelection !== undefined) return state;
 
   const afterEnemies = withOutcome(runEnemyIntents(state, deps.getEnemyDef));
   if (afterEnemies.phase === CombatPhase.Defeat) return afterEnemies;
@@ -110,12 +117,22 @@ function reduceEndTurn(deps: CombatDeps, state: CombatState): CombatState {
 
   const upkept: CombatState = {
     ...ticked,
-    player: clearBlock(ticked.player),
+    // Reset Block, then re-grant the armor's passive Block for the new turn.
+    player: gainBlock(clearBlock(ticked.player), deps.passiveBlock),
     energy: deps.energyPerTurn,
     turn: ticked.turn + 1,
     phase: CombatPhase.PlayerTurn,
   };
   return withOutcome(draw(upkept, Math.max(0, deps.handSize - upkept.hand.length)));
+}
+
+/** Resolve a parked scry: move the chosen revealed cards to hand, the rest to discard. */
+function reduceResolveSelection(
+  _deps: CombatDeps,
+  state: CombatState,
+  action: Extract<CombatAction, { type: 'ResolveSelection' }>,
+): CombatState {
+  return resolveSelection(state, action.instanceIds);
 }
 
 /** Typed dispatch table: one reducer per action type, each typed to its payload. */
@@ -131,6 +148,7 @@ const TABLE: CombatReducerTable = {
   StartCombat: reduceStartCombat,
   PlayCard: reducePlayCard,
   EndTurn: reduceEndTurn,
+  ResolveSelection: reduceResolveSelection,
 };
 
 /**

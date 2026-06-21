@@ -109,6 +109,55 @@ export function pick(state: CombatState, n: number): CombatState {
 }
 
 /**
+ * Scry: reveal the top `n` cards of the `drawPile` for an interactive pick. Nothing moves —
+ * the revealed instance ids are parked on `pendingSelection` (with `pick` = how many of them
+ * the player may keep); a later {@link resolveSelection} consumes that. No-op for non-positive
+ * `n` or an empty draw pile (no selection to make).
+ */
+export function scry(state: CombatState, n: number): CombatState {
+  const candidates = state.drawPile.slice(0, Math.max(0, n));
+  if (candidates.length === 0) return state;
+  return {
+    ...state,
+    pendingSelection: {
+      candidateIds: candidates.map((c) => c.instanceId),
+      pick: candidates.length,
+    },
+  };
+}
+
+/**
+ * Resolve a parked scry: of the revealed candidates, the ones in `chosenIds` (∈ candidates,
+ * capped at `pick`) go to the `hand`; the rest go to the `discardPile`. Either way the revealed
+ * cards leave the top of the draw pile and `pendingSelection` is cleared. No-op when nothing is
+ * pending. Robust to a reordered/changed draw pile: it partitions the actual top slice by id.
+ */
+export function resolveSelection(state: CombatState, chosenIds: readonly string[]): CombatState {
+  const pending = state.pendingSelection;
+  if (pending === undefined) return state;
+  const n = pending.candidateIds.length;
+  const candidates = new Set(pending.candidateIds);
+  const chosen = new Set(chosenIds.filter((id) => candidates.has(id)).slice(0, pending.pick));
+  const top = state.drawPile.slice(0, n);
+  const toHand = top.filter((c) => chosen.has(c.instanceId));
+  const toDiscard = top.filter((c) => !chosen.has(c.instanceId));
+  // Rebuild explicitly so `pendingSelection` is omitted, not set to undefined
+  // (exactOptionalPropertyTypes). A new required CombatState field would fail here by design.
+  return {
+    player: state.player,
+    enemies: state.enemies,
+    drawPile: state.drawPile.slice(n),
+    hand: [...state.hand, ...toHand],
+    discardPile: [...state.discardPile, ...toDiscard],
+    exhaustPile: state.exhaustPile,
+    energy: state.energy,
+    turn: state.turn,
+    phase: state.phase,
+    rng: state.rng,
+  };
+}
+
+/**
  * Rebuild the deck for the next combat: only Permanent cards are restored; SingleUse
  * cards are dropped (they live only within a single combat). `getDef` resolves a card's
  * definition, since `CardType` lives on `CardDefinition`, not on `CardInstance`.
@@ -127,6 +176,8 @@ export const DeckManager = {
   exhaust,
   drop,
   pick,
+  scry,
+  resolveSelection,
   reshuffleDiscardIntoDraw,
   resetPermanentDeck,
 } as const;

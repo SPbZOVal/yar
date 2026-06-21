@@ -91,6 +91,13 @@ const fakeBossLoot: RunDeps['rollBossLoot'] = (seed, isEndBoss) => [
   (seed + 1) | 0,
 ];
 
+// Deterministic fake: a collected special card bumps maxHp/currentHp by a recognisable +100.
+const fakeApplySpecial: RunDeps['applySpecialCard'] = (p) => ({
+  ...p,
+  maxHp: p.maxHp + 100,
+  currentHp: p.currentHp + 100,
+});
+
 const deps: RunDeps = {
   maxDeckSize: 3,
   generationParams: GENERATION_PARAMS,
@@ -99,6 +106,7 @@ const deps: RunDeps = {
   startCombat: fakeStartCombat,
   rollChestLoot: fakeChestLoot,
   rollBossLoot: fakeBossLoot,
+  applySpecialCard: fakeApplySpecial,
 };
 
 function runState(overrides: Partial<RunState> = {}): RunState {
@@ -462,6 +470,20 @@ describe('CollectLoot', () => {
     const s = runReducer(deps, runState(), { type: 'CollectLoot', reward });
     expect(s.collection.ownedWeapons).toEqual([sword]);
     expect(s.collection.ownedArmor).toEqual([plate]);
+  });
+
+  it('applies a special card to player meta and does not add it to the collection/bag', () => {
+    const special = { ...cardDef('heart', CardType.SingleUse), isSpecial: true };
+    // A normal card alongside it still routes to the collection; only the special is consumed.
+    const reward: LootReward = {
+      cards: [special, cardDef('blade', CardType.Permanent)],
+      isSpecial: true,
+    };
+    const s = runReducer(deps, runState(), { type: 'CollectLoot', reward });
+    expect(s.player.maxHp).toBe(150); // 50 + fake special's +100
+    expect(s.player.currentHp).toBe(150);
+    expect(s.collection.ownedCards.map((c) => c.defId)).toEqual(['blade']); // special not stored
+    expect(s.singleUseBag).toEqual([]);
   });
 });
 

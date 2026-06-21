@@ -81,13 +81,17 @@ export type Cutscene = (typeof Cutscene)[keyof typeof Cutscene];
  *  - `Reshuffle` — shuffle the discard back onto the draw pile;
  *  - `Drop`      — mill: move the top `value` cards of the draw pile to the discard;
  *  - `Pick`      — take the top `value` cards into hand WITHOUT reshuffling (the value-only
- *                  "pick what's on top" variant; true card selection needs an action seam).
+ *                  "pick what's on top" variant; non-interactive).
+ *  - `Scry`      — reveal the top `value` cards and let the player CHOOSE which to take (the
+ *                  interactive variant): parks them on `CombatState.pendingSelection` for a
+ *                  `ResolveSelection` action — the kept cards go to hand, the rest to discard.
  */
 export const DeckOp = {
   Draw: 'Draw',
   Reshuffle: 'Reshuffle',
   Drop: 'Drop',
   Pick: 'Pick',
+  Scry: 'Scry',
 } as const;
 export type DeckOp = (typeof DeckOp)[keyof typeof DeckOp];
 

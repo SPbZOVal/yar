@@ -7,6 +7,8 @@ import {
   drop,
   exhaust,
   pick,
+  resolveSelection,
+  scry,
   reshuffleDiscardIntoDraw,
   resetPermanentDeck,
 } from '../deckManager';
@@ -226,6 +228,57 @@ describe('resetPermanentDeck', () => {
   });
 });
 
+describe('scry', () => {
+  it('parks the top N as a pending selection without moving any card', () => {
+    const s = scry(state({ drawPile: cards('a', 'b', 'c', 'd') }), 3);
+    expect(s.pendingSelection).toEqual({ candidateIds: ['a', 'b', 'c'], pick: 3 });
+    expect(ids(s.drawPile)).toEqual(['a', 'b', 'c', 'd']); // unmoved
+  });
+
+  it('reveals only what is available when the draw pile is shorter than N', () => {
+    const s = scry(state({ drawPile: cards('a', 'b') }), 5);
+    expect(s.pendingSelection).toEqual({ candidateIds: ['a', 'b'], pick: 2 });
+  });
+
+  it('is a no-op for a non-positive count or an empty draw pile (same reference)', () => {
+    const empty = state({ drawPile: [] });
+    expect(scry(empty, 3)).toBe(empty);
+    const some = state({ drawPile: cards('a') });
+    expect(scry(some, 0)).toBe(some);
+  });
+});
+
+describe('resolveSelection', () => {
+  const pending = (): CombatState => scry(state({ drawPile: cards('a', 'b', 'c', 'd') }), 3);
+
+  it('moves the chosen revealed cards to hand and mills the rest, clearing the selection', () => {
+    const s = resolveSelection(pending(), ['a', 'c']);
+    expect(s.pendingSelection).toBeUndefined();
+    expect(ids(s.hand)).toEqual(['a', 'c']);
+    expect(ids(s.discardPile)).toEqual(['b']); // unchosen of the revealed top
+    expect(ids(s.drawPile)).toEqual(['d']); // the revealed top is consumed
+  });
+
+  it('milling all revealed cards when nothing is chosen', () => {
+    const s = resolveSelection(pending(), []);
+    expect(ids(s.hand)).toEqual([]);
+    expect(ids(s.discardPile)).toEqual(['a', 'b', 'c']);
+    expect(ids(s.drawPile)).toEqual(['d']);
+  });
+
+  it('ignores ids outside the candidates and caps the take at `pick`', () => {
+    // 'd' is below the revealed window; 'ghost' is unknown — both ignored.
+    const s = resolveSelection(pending(), ['a', 'd', 'ghost', 'b', 'c']);
+    expect(ids(s.hand)).toEqual(['a', 'b', 'c']);
+    expect(ids(s.discardPile)).toEqual([]);
+  });
+
+  it('is a no-op when nothing is pending (same reference)', () => {
+    const s = state({ drawPile: cards('a') });
+    expect(resolveSelection(s, ['a'])).toBe(s);
+  });
+});
+
 describe('DeckManager aggregate', () => {
   it('exposes the documented API surface', () => {
     expect(typeof DeckManager.draw).toBe('function');
@@ -233,6 +286,8 @@ describe('DeckManager aggregate', () => {
     expect(typeof DeckManager.exhaust).toBe('function');
     expect(typeof DeckManager.drop).toBe('function');
     expect(typeof DeckManager.pick).toBe('function');
+    expect(typeof DeckManager.scry).toBe('function');
+    expect(typeof DeckManager.resolveSelection).toBe('function');
     expect(typeof DeckManager.reshuffleDiscardIntoDraw).toBe('function');
     expect(typeof DeckManager.resetPermanentDeck).toBe('function');
   });
