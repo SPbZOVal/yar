@@ -28,6 +28,7 @@ const params: GenerationParams = {
   layerCount: { min: 4, max: 6 },
   layerWidth: { min: 2, max: 4 },
   nodeWeights: { combat: 6, loot: 2, question: 2 },
+  nodeMinimums: { combat: 0, loot: 0, question: 0 },
   midBossCount: { min: 1, max: 2 },
   edgeDensity: 0.5,
   difficultyScaling: 1.2,
@@ -190,6 +191,41 @@ describe('generateLevel content', () => {
           expect(n.content.enemies).toHaveLength(expectedEnemyCount(n.layer));
         }
       }
+    }
+  });
+
+  it('guarantees nodeMinimums.question ≥ 1, placed in the first layer (reachable from Start)', () => {
+    const withQuestion: GenerationParams = {
+      ...params,
+      nodeMinimums: { combat: 0, loot: 0, question: 1 },
+    };
+    for (const s of seeds(40)) {
+      const g = generateLevel(withQuestion, deps, s);
+      const questions = [...g.nodes.values()].filter((n) => n.type === NodeType.Question);
+      expect(questions.length).toBeGreaterThanOrEqual(1); // the guaranteed minimum
+      // The forced question lands in the first interior layer, directly enterable from Start.
+      const firstLayerQuestion = questions.some((n) => n.layer === 1);
+      expect(firstLayerQuestion).toBe(true);
+      expect(g.edges.some((e) => e.from === g.startId)).toBe(true);
+    }
+  });
+
+  it('respects multiple minimums (each kind appears at least its minimum)', () => {
+    const mins: GenerationParams = {
+      ...params,
+      layerCount: { min: 5, max: 6 },
+      layerWidth: { min: 3, max: 4 }, // roomy enough that all three minimums always fit
+      midBossCount: { min: 1, max: 1 },
+      nodeMinimums: { combat: 1, loot: 1, question: 1 },
+    };
+    for (const s of seeds(30)) {
+      const g = generateLevel(mins, deps, s);
+      const interior = [...g.nodes.values()].filter(
+        (n) => n.id !== g.startId && n.type !== NodeType.Boss,
+      );
+      expect(interior.filter((n) => n.type === NodeType.Combat).length).toBeGreaterThanOrEqual(1);
+      expect(interior.filter((n) => n.type === NodeType.Loot).length).toBeGreaterThanOrEqual(1);
+      expect(interior.filter((n) => n.type === NodeType.Question).length).toBeGreaterThanOrEqual(1);
     }
   });
 });

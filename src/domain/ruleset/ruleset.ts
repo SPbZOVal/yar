@@ -44,6 +44,9 @@ export const GENERATION_PARAMS: GenerationParams = {
   layerCount: { min: 4, max: 6 },
   layerWidth: { min: 2, max: 4 },
   nodeWeights: { combat: 6, loot: 2, question: 2 },
+  // Guarantee one question per level, placed in the first layer (reachable straight from Start) —
+  // keeps the math-stats quiz reliably reachable for testing; the rest of the mix stays weighted.
+  nodeMinimums: { combat: 0, loot: 0, question: 1 },
   midBossCount: { min: 1, max: 2 },
   edgeDensity: 0.5,
   difficultyScaling: 1.2,

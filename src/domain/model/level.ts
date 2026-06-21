@@ -65,8 +65,19 @@ export interface GenerationParams {
   readonly layerCount: { readonly min: number; readonly max: number };
   /** Nodes per layer. */
   readonly layerWidth: { readonly min: number; readonly max: number };
-  /** Relative weights for content placement. */
+  /** Relative weights for content placement (the probabilistic fill after minimums are placed). */
   readonly nodeWeights: {
+    readonly combat: number;
+    readonly loot: number;
+    readonly question: number;
+  };
+  /**
+   * Minimum guaranteed count of each content kind per level. Placed before the weighted fill,
+   * into the earliest interior layers first — so a `question` minimum ≥ 1 always surfaces a
+   * question node in the first layer (directly reachable from Start). Best-effort if the level
+   * has fewer content nodes than the requested minimums.
+   */
+  readonly nodeMinimums: {
     readonly combat: number;
     readonly loot: number;
     readonly question: number;

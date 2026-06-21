@@ -40,6 +40,9 @@ export interface LevelGenDeps {
   readonly maxEnemiesPerNode: number;
 }
 
+/** The three placeable content kinds for an interior node. */
+type ContentKind = 'combat' | 'loot' | 'question';
+
 const clamp = (n: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, n));
 const span = (r: { readonly min: number; readonly max: number }): number =>
   Math.max(1, r.max - r.min + 1);
@@ -146,7 +149,7 @@ function buildGraph(
         );
     return sortedBosses[idx] as EnemyDefinition;
   };
-  const pickContentKind = (): 'combat' | 'loot' | 'question' => {
+  const pickContentKind = (): ContentKind => {
     const w = params.nodeWeights;
     const total = w.combat + w.loot + w.question;
     if (total <= 0) return 'combat';
@@ -154,6 +157,25 @@ function buildGraph(
     if (roll < w.combat) return 'combat';
     return roll < w.combat + w.loot ? 'loot' : 'question';
   };
+
+  // 4b. Guaranteed minimums: interior content nodes in layer order (earliest first), with the
+  // requested minimum of each kind forced onto the leading nodes — question first, so a question
+  // minimum lands in the first interior layer (reachable straight from Start). The rest fill by
+  // weight. Forcing consumes no RNG, so a level with all-zero minimums generates exactly as before.
+  const contentNodeIds = layers.flatMap((ids, layer) =>
+    layer === 0 || layer === k - 1 ? [] : ids.filter((id) => !bossIds.has(id)),
+  );
+  const min = params.nodeMinimums;
+  const forcedKinds: ContentKind[] = [
+    ...Array<ContentKind>(Math.max(0, min.question)).fill('question'),
+    ...Array<ContentKind>(Math.max(0, min.loot)).fill('loot'),
+    ...Array<ContentKind>(Math.max(0, min.combat)).fill('combat'),
+  ];
+  const forcedKind = new Map<string, ContentKind>();
+  contentNodeIds.forEach((id, i) => {
+    const forced = forcedKinds[i];
+    if (forced !== undefined) forcedKind.set(id, forced);
+  });
 
   // 5. assign content to every node.
   const nodes = new Map<string, LevelNode>();
@@ -173,7 +195,7 @@ function buildGraph(
         nodes.set(id, { id, type: NodeType.Boss, layer, content, visited: false });
         continue;
       }
-      const kind = pickContentKind();
+      const kind = forcedKind.get(id) ?? pickContentKind();
       if (kind === 'combat') {
         nodes.set(id, {
           id,
