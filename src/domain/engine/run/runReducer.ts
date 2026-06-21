@@ -20,7 +20,7 @@
  */
 import { seedFrom } from '../../rng/rng';
 import type { Seed } from '../../rng/rng';
-import { CardType, CombatPhase } from '../../model';
+import { CardType, CombatPhase, Cutscene } from '../../model';
 import type {
   CardInstance,
   Collection,
@@ -49,6 +49,7 @@ export type RunAction =
   | { readonly type: 'AnswerQuestion'; readonly answerIndex: number }
   | { readonly type: 'ResolveCombat' }
   | { readonly type: 'AdvanceLevel' }
+  | { readonly type: 'DismissCutscene' }
   | { readonly type: 'OnPlayerDeath' };
 
 /** Config the run reducer needs (combat construction is pre-bound in `startCombat`). */
@@ -75,6 +76,9 @@ export interface RunDeps {
 const DECK_BUILDING: ScreenState = { name: 'deckBuilding' };
 const EMPTY_COLLECTION: Collection = { ownedCards: [], ownedWeapons: [], ownedArmor: [] };
 
+/** A cutscene screen for a given narrative beat (see content/cutscenes.ts). */
+const cutsceneScreen = (cutscene: Cutscene): ScreenState => ({ name: 'cutscene', cutscene });
+
 /**
  * Append one owned card to a collection with a deterministic, collision-free instance id:
  * an append-only collection's length is a monotonic counter. Shared by starter seeding and
@@ -98,7 +102,8 @@ function reduceStartRun(
     levelIndex: 0,
     singleUseBag: [],
     combat: null,
-    screen: DECK_BUILDING,
+    // A fresh run opens on the intro cutscene; DismissCutscene advances to deck-building.
+    screen: cutsceneScreen(Cutscene.Intro),
     seed: action.seed,
   };
 }
@@ -210,7 +215,11 @@ function reduceEnterNode(
     ];
     const seed = seedFrom(`${state.seed}:combat:${action.nodeId}`);
     const combat = deps.startCombat(state.player, enemies, deck, seed);
-    return { ...state, currentLevel, combat, screen: { name: 'combat' } };
+    // The end boss is staged behind a pre-boss cutscene; DismissCutscene reveals the fight.
+    // Regular fights (and any mid-level boss) go straight to combat.
+    const endBoss = content.kind === 'boss' && action.nodeId === level.endId;
+    const screen = endBoss ? cutsceneScreen(Cutscene.PreBoss) : { name: 'combat' };
+    return { ...state, currentLevel, combat, screen };
   }
   return { ...state, currentLevel, screen: screenForNode(target) };
 }
@@ -328,9 +337,9 @@ function reduceResolveCombat(deps: RunDeps, state: RunState): RunState {
       // Single-use cards played this fight are spent for the level.
       singleUseBag: consumeBag(state.singleUseBag, combat.exhaustPile),
       combat: null,
-      // End boss → 'levelCleared' (UI shows the cutscene, then dispatches AdvanceLevel);
+      // End boss → post-boss cutscene (DismissCutscene → 'levelCleared' → AdvanceLevel);
       // mid-boss / combat → resume navigation on the level map.
-      screen: { name: endBoss ? 'levelCleared' : 'level' },
+      screen: endBoss ? cutsceneScreen(Cutscene.PostBoss) : { name: 'level' },
     };
     return awardCombatLoot(deps, synced);
   }
@@ -351,6 +360,24 @@ function reduceAdvanceLevel(_deps: RunDeps, state: RunState): RunState {
     combat: null,
     screen: DECK_BUILDING,
   };
+}
+
+/**
+ * Advance past the current cutscene beat to whatever it gated: the intro → deck-building, the
+ * pre-boss beat → the already-staged boss fight, the post-boss beat → the level-cleared screen.
+ * No-op when the run isn't on a cutscene.
+ */
+function reduceDismissCutscene(_deps: RunDeps, state: RunState): RunState {
+  switch (state.screen.cutscene) {
+    case Cutscene.Intro:
+      return { ...state, screen: DECK_BUILDING };
+    case Cutscene.PreBoss:
+      return { ...state, screen: { name: 'combat' } };
+    case Cutscene.PostBoss:
+      return { ...state, screen: { name: 'levelCleared' } };
+    default:
+      return state;
+  }
 }
 
 function reduceOnPlayerDeath(_deps: RunDeps, state: RunState): RunState {
@@ -376,6 +403,7 @@ const TABLE: RunReducerTable = {
   AnswerQuestion: reduceAnswerQuestion,
   ResolveCombat: reduceResolveCombat,
   AdvanceLevel: reduceAdvanceLevel,
+  DismissCutscene: reduceDismissCutscene,
   OnPlayerDeath: reduceOnPlayerDeath,
 };
 

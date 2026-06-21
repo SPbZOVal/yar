@@ -64,6 +64,18 @@ export const Targeting = {
 export type Targeting = (typeof Targeting)[keyof typeof Targeting];
 
 /**
+ * A narrative cutscene beat. Each maps to a block of typewriter lines (see content/cutscenes.ts)
+ * and a "what comes next" transition handled by `DismissCutscene`: the run intro → deck-building,
+ * the pre-boss beat → the staged boss fight, the post-boss beat → the level-cleared screen.
+ */
+export const Cutscene = {
+  Intro: 'intro',
+  PreBoss: 'preBoss',
+  PostBoss: 'postBoss',
+} as const;
+export type Cutscene = (typeof Cutscene)[keyof typeof Cutscene];
+
+/**
  * Deck-level operation for a `DeckManipulation` effect.
  *  - `Draw`      — draw `value` cards (reshuffles the discard in when the draw pile empties);
  *  - `Reshuffle` — shuffle the discard back onto the draw pile;

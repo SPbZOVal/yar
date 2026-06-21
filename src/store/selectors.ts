@@ -6,6 +6,7 @@
 import type {
   CardInstance,
   CombatState,
+  Cutscene,
   EnemyInstance,
   LevelEdge,
   LevelGraph,
@@ -24,6 +25,8 @@ const NO_IDS: readonly string[] = [];
 
 /** The active run/UI screen name (drives navigation). */
 export const selectScreen = (s: GameState): string => s.run.screen.name;
+/** Which cutscene beat to play when the screen is `cutscene` (else `undefined`). */
+export const selectCutscene = (s: GameState): Cutscene | undefined => s.run.screen.cutscene;
 export const selectPlayer = (s: GameState): PlayerState => s.run.player;
 /** Meta slice: the persisted, working collection. */
 export const selectCollection = (s: GameState): Collection => s.run.collection;

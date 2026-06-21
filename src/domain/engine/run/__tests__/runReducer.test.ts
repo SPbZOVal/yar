@@ -376,12 +376,23 @@ describe('EnterNode', () => {
     ]);
   });
 
-  it('starts combat on a boss node using the boss as the single enemy', () => {
+  it('stages the end-boss fight behind a pre-boss cutscene (boss as the single enemy)', () => {
     const st = runState({ currentLevel: level('L1N0') });
     const s = runReducer(deps, st, { type: 'EnterNode', nodeId: 'L2N0' });
-    expect(s.screen.name).toBe('combat');
-    expect(s.combat?.enemies).toHaveLength(1);
+    expect(s.screen.name).toBe('cutscene');
+    expect(s.screen.cutscene).toBe('preBoss');
+    expect(s.combat?.enemies).toHaveLength(1); // the fight is built, waiting behind the cutscene
     expect(s.combat?.enemies[0]?.defId).toBe('warden');
+  });
+
+  it('DismissCutscene on the pre-boss beat reveals the staged boss fight', () => {
+    const staged = runReducer(deps, runState({ currentLevel: level('L1N0') }), {
+      type: 'EnterNode',
+      nodeId: 'L2N0',
+    });
+    const s = runReducer(deps, staged, { type: 'DismissCutscene' });
+    expect(s.screen.name).toBe('combat');
+    expect(s.combat).toBe(staged.combat); // same staged fight, now shown
   });
 
   it('is deterministic per (run seed, node id)', () => {
@@ -533,7 +544,8 @@ describe('ResolveCombat', () => {
     expect(s.collection.ownedCards).toEqual([
       { instanceId: 'boss-special#0', defId: 'boss-special', upgraded: false },
     ]);
-    expect(s.screen.name).toBe('levelCleared'); // end boss → cutscene/advance, not the level map
+    expect(s.screen.name).toBe('cutscene'); // end boss → post-boss cutscene, not the level map
+    expect(s.screen.cutscene).toBe('postBoss');
   });
 
   it('spends the single-use bag slots played during the fight', () => {
@@ -697,5 +709,24 @@ describe('defaultRunDeps', () => {
     s = runReducer(real, s, { type: 'GenerateLevel' });
     expect(s.currentLevel).not.toBeNull();
     expect(s.screen.name).toBe('level');
+  });
+});
+
+describe('DismissCutscene', () => {
+  it('intro beat advances to deck-building', () => {
+    const st = runState({ screen: { name: 'cutscene', cutscene: 'intro' } });
+    const s = runReducer(deps, st, { type: 'DismissCutscene' });
+    expect(s.screen.name).toBe('deckBuilding');
+  });
+
+  it('post-boss beat advances to the level-cleared screen', () => {
+    const st = runState({ screen: { name: 'cutscene', cutscene: 'postBoss' } });
+    const s = runReducer(deps, st, { type: 'DismissCutscene' });
+    expect(s.screen.name).toBe('levelCleared');
+  });
+
+  it('is a no-op when the run is not on a cutscene', () => {
+    const st = runState({ screen: { name: 'level' } });
+    expect(runReducer(deps, st, { type: 'DismissCutscene' })).toBe(st);
   });
 });

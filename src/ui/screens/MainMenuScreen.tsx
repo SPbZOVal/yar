@@ -19,10 +19,14 @@ export function MainMenuScreen({ navigation }: Props) {
     <SafeAreaView style={styles.container}>
       <Text style={styles.title}>🃏 Yar</Text>
       <Text style={styles.subtitle}>Yet Another Rogue</Text>
-      <Pressable style={styles.button} onPress={startNewRun}>
+      <Pressable testID="new-run" style={styles.button} onPress={startNewRun}>
         <Text style={styles.buttonText}>Новый забег</Text>
       </Pressable>
-      <Pressable style={styles.buttonSecondary} onPress={() => navigation.navigate('Game')}>
+      <Pressable
+        testID="continue"
+        style={styles.buttonSecondary}
+        onPress={() => navigation.navigate('Game')}
+      >
         <Text style={styles.buttonText}>Продолжить</Text>
       </Pressable>
     </SafeAreaView>

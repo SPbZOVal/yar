@@ -5,6 +5,7 @@ import { createDefaultGameStore } from '..';
 import {
   selectCollection,
   selectCombat,
+  selectCutscene,
   selectEnemies,
   selectEnergy,
   selectHand,
@@ -19,7 +20,8 @@ const store = () => createDefaultGameStore(createPersistence(new InMemoryKeyValu
 describe('selectors', () => {
   it('reads run-level slices and combat-off fallbacks', () => {
     const s = store().getState();
-    expect(selectScreen(s)).toBe('deckBuilding');
+    expect(selectScreen(s)).toBe('cutscene'); // a fresh run opens on the intro cutscene
+    expect(selectCutscene(s)).toBe('intro');
     expect(selectPlayer(s)).toBe(s.run.player);
     expect(selectCollection(s)).toBe(s.run.collection);
     expect(selectLevel(s)).toBeNull();

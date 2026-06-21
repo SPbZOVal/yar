@@ -1,15 +1,18 @@
 /** Run-level state. See docs/architecture/03-data-model.md §7.7. */
 import type { CombatState } from './combat';
+import type { Cutscene } from './enums';
 import type { LevelGraph } from './level';
 import type { Collection, RunDeck } from './collection';
 import type { PlayerState } from './player';
 
 /**
- * Placeholder for navigation/screen state. Fleshed out in the navigation PR
- * (M2+); kept minimal here so RunState is complete and type-checks.
+ * Which sub-screen the run shows. `name` drives the UI router (`GameScreen`); when
+ * `name === 'cutscene'`, `cutscene` says which narrative beat to play and what
+ * `DismissCutscene` advances to.
  */
 export interface ScreenState {
   readonly name: string;
+  readonly cutscene?: Cutscene;
 }
 
 /**

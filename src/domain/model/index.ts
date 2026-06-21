@@ -11,6 +11,7 @@ export {
   Rarity,
   NodeType,
   CombatPhase,
+  Cutscene,
 } from './enums';
 export { Lifetime, StatusKind } from './status';
 

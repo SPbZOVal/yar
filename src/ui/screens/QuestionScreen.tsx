@@ -1,11 +1,20 @@
-import { Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { selectCurrentNode } from '../../store';
 import { useGameStore } from '../store/GameStoreContext';
 import { Button } from '../components/Button';
+import { DialogueBox } from '../components/DialogueBox';
 import { colors } from '../theme';
 
-/** Quiz screen: a correct answer grants the reward (reducer routes loot + back to level). */
+/** The character who poses riddles on a question node (placeholder portrait until art exists). */
+const SPHINX = { portrait: '🗿', name: 'Сфинкс' } as const;
+
+/**
+ * Question node as a visual-novel scene (landscape): the Sphinx stands at the right, just above the
+ * dialogue block. The riddle types out in the box and the answer options appear as a 2×2 grid of
+ * choices once the line is shown. A correct answer grants the reward (the reducer routes loot +
+ * returns to the level map).
+ */
 export function QuestionScreen() {
   const node = useGameStore(selectCurrentNode);
   const dispatch = useGameStore((s) => s.dispatch);
@@ -14,34 +23,50 @@ export function QuestionScreen() {
   if (question === undefined) {
     return (
       <SafeAreaView style={styles.container}>
-        <Text style={styles.prompt}>Нет вопроса</Text>
+        <View style={styles.portraitRow}>
+          <Text style={styles.portrait}>{SPHINX.portrait}</Text>
+        </View>
+        <DialogueBox speaker={SPHINX.name} text="Загадок больше нет." />
       </SafeAreaView>
     );
   }
 
+  const choices = (
+    <View style={styles.choices}>
+      {question.options.map((option, index) => (
+        <View key={index} style={styles.choiceCell}>
+          <Button
+            testID={`answer-${index}`}
+            variant="secondary"
+            label={option}
+            onPress={() => dispatch({ type: 'AnswerQuestion', answerIndex: index })}
+          />
+        </View>
+      ))}
+    </View>
+  );
+
   return (
     <SafeAreaView style={styles.container}>
-      <Text style={styles.prompt}>{question.text}</Text>
-      {question.options.map((option, index) => (
-        <Button
-          key={index}
-          testID={`answer-${index}`}
-          variant="secondary"
-          label={option}
-          onPress={() => dispatch({ type: 'AnswerQuestion', answerIndex: index })}
-        />
-      ))}
+      <View style={styles.portraitRow}>
+        <Text style={styles.portrait}>{SPHINX.portrait}</Text>
+      </View>
+      <DialogueBox speaker={SPHINX.name} text={question.text} choices={choices} />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg, padding: 24, justifyContent: 'center' },
-  prompt: {
-    fontSize: 22,
-    color: colors.text,
-    fontWeight: '600',
-    marginBottom: 24,
-    textAlign: 'center',
+  // Stack to the bottom: the Sphinx sits in the right part, just above the dialogue block.
+  container: { flex: 1, backgroundColor: colors.bg, justifyContent: 'flex-end' },
+  portraitRow: { alignItems: 'flex-end', paddingRight: 96, paddingBottom: 4 },
+  portrait: { fontSize: 128 },
+  // 2×2 grid keeps the block short enough to leave the character visible above it.
+  choices: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginTop: 10,
   },
+  choiceCell: { width: '49%' },
 });
