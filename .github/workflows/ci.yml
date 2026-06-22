@@ -19,7 +19,7 @@ jobs:
     name: Lint · Types · Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Detect codebase
         id: app
@@ -83,7 +83,7 @@ jobs:
     # Debug-сборку гоняем на push в интеграционные ветки, не на каждом PR.
     if: github.event_name != 'pull_request'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Detect Expo app
         id: app
